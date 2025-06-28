@@ -1,5 +1,6 @@
 """File upload, preview and extraction API handlers."""
 
+import json
 import tempfile
 import time
 import uuid
@@ -15,6 +16,13 @@ try:
     EXTRACTOR_AVAILABLE = True
 except ImportError:
     EXTRACTOR_AVAILABLE = False
+
+try:
+    from karenina.llm.manual_traces import load_manual_traces, get_manual_trace_count, ManualTraceError
+
+    MANUAL_TRACES_AVAILABLE = True
+except ImportError:
+    MANUAL_TRACES_AVAILABLE = False
 
 # Global storage for uploaded files (in production, use a proper database)
 uploaded_files = {}
@@ -212,3 +220,50 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting file: {e!s}")
+
+    @app.post("/api/upload-manual-traces")
+    async def upload_manual_traces_endpoint(file: UploadFile = File(...)):
+        """Upload manual traces JSON file."""
+        if not MANUAL_TRACES_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Manual traces functionality not available")
+
+        try:
+            # Read file content
+            content = await file.read()
+            
+            # Parse JSON
+            try:
+                json_data = json.loads(content)
+            except json.JSONDecodeError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON format: {e}")
+            
+            # Load traces into the trace manager
+            load_manual_traces(json_data)
+            
+            # Get count for response
+            trace_count = get_manual_trace_count()
+            
+            return {
+                "success": True,
+                "message": f"Successfully loaded {trace_count} manual traces",
+                "trace_count": trace_count,
+                "filename": file.filename
+            }
+            
+        except ManualTraceError as e:
+            raise HTTPException(status_code=400, detail=f"Manual trace validation error: {e}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error uploading manual traces: {e}")
+
+    @app.get("/api/manual-traces/status")
+    async def get_manual_traces_status():
+        """Get the status of loaded manual traces."""
+        if not MANUAL_TRACES_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Manual traces functionality not available")
+
+        trace_count = get_manual_trace_count()
+        
+        return {
+            "loaded": trace_count > 0,
+            "trace_count": trace_count
+        }
