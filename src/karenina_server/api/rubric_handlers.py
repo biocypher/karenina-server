@@ -6,12 +6,11 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
 from karenina.schemas import Rubric, RubricTrait
 from karenina.schemas.question_class import Question
-from karenina_server.services.generation_service import GenerationService
+from pydantic import BaseModel
 
+from karenina_server.services.generation_service import GenerationService
 
 router = APIRouter()
 
@@ -51,7 +50,10 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
         questions = []
         for q_data in request.questions:
             question = Question(
-                id=q_data.get("id", str(uuid.uuid4())), text=q_data.get("text", ""), metadata=q_data.get("metadata", {})
+                id=q_data.get("id", str(uuid.uuid4())),
+                question=q_data.get("text", "Unknown question"),
+                raw_answer=q_data.get("raw_answer", "Unknown answer"),
+                tags=q_data.get("tags", [])
             )
             questions.append(question)
 
@@ -69,7 +71,7 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
 
         # For now, we'll generate traits synchronously
         # In a production system, this might use the job queue system
-        generated_text = await generation_service.generate_rubric_traits(
+        generated_text = generation_service.generate_rubric_traits(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model_provider=request.model_provider,
@@ -82,6 +84,8 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
 
         return RubricTraitGenerationResponse(traits=traits)
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating rubric traits: {str(e)}")
 
@@ -166,7 +170,7 @@ def _build_rubric_generation_prompt(questions: list[Question], user_suggestions:
 
     # Add question context
     for i, question in enumerate(questions[:5], 1):  # Limit to first 5 questions
-        prompt_parts.append(f"{i}. {question.text}")
+        prompt_parts.append(f"{i}. {question.question}")
 
     if len(questions) > 5:
         prompt_parts.append(f"... and {len(questions) - 5} more questions")

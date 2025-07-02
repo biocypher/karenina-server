@@ -4,10 +4,9 @@ import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional
 
-from karenina.utils.code_parser import extract_and_combine_codeblocks
 from karenina.answers.generator import generate_answer_template
+from karenina.utils.code_parser import extract_and_combine_codeblocks
 
 
 class TemplateGenerationJob:
@@ -71,8 +70,8 @@ class GenerationService:
 
     def __init__(self, max_workers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.jobs: Dict[str, TemplateGenerationJob] = {}
-        self.futures: Dict[str, any] = {}  # Add missing futures dict
+        self.jobs: dict[str, TemplateGenerationJob] = {}
+        self.futures: dict[str, any] = {}  # Add missing futures dict
 
     def start_generation(self, questions_data: dict, config: dict, custom_system_prompt: str = None) -> str:
         """Start a new template generation job."""
@@ -95,7 +94,7 @@ class GenerationService:
 
         return job_id
 
-    def get_job_status(self, job_id: str) -> Optional[dict]:
+    def get_job_status(self, job_id: str) -> dict | None:
         """Get the status of a generation job."""
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
@@ -109,7 +108,7 @@ class GenerationService:
             return True
         return False
 
-    def get_job_results(self, job_id: str) -> Optional[dict]:
+    def get_job_results(self, job_id: str) -> dict | None:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
@@ -259,7 +258,7 @@ class GenerationService:
             "end_time": job.end_time,
         }
 
-    async def generate_rubric_traits(
+    def generate_rubric_traits(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -273,17 +272,18 @@ class GenerationService:
         This is a simple synchronous method for trait generation.
         For now, we don't use the job queue system as trait generation is typically fast.
         """
-        from karenina.llm.interface import LLMInterface
+        from karenina.llm.interface import call_model
 
-        # Create LLM interface
-        llm = LLMInterface(
-            model_name=model_name, model_provider=model_provider, temperature=temperature, interface="langchain"
+        # Generate response using call_model function
+        response = call_model(
+            model=model_name,
+            provider=model_provider,
+            message=user_prompt,
+            system_message=system_prompt,
+            temperature=temperature
         )
 
-        # Generate response
-        response = llm.generate(prompt=user_prompt, system_prompt=system_prompt)
-
-        return response
+        return response.message
 
 
 # Global service instance
