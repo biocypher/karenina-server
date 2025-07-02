@@ -358,12 +358,14 @@ def create_fastapi_app(webapp_dir: Path):
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
     from .api.verification_handlers import register_verification_routes
+    from .api.rubric_handlers import router as rubric_router
 
     # Register all route handlers
     register_chat_routes(app)
     register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, ExtractQuestionsResponse)
     register_verification_routes(app, verification_service)
     register_generation_routes(app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse)
+    app.include_router(rubric_router, prefix="/api")
 
     # Serve static files from the webapp dist directory
     dist_dir = webapp_dir / "dist"
