@@ -3,7 +3,6 @@
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional
 
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.benchmark.verifier import run_question_verification
@@ -15,17 +14,17 @@ class VerificationService:
 
     def __init__(self, max_workers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.jobs: Dict[str, VerificationJob] = {}
-        self.futures: Dict[str, any] = {}
+        self.jobs: dict[str, VerificationJob] = {}
+        self.futures: dict[str, any] = {}
         # Store all historical results keyed by job_id
-        self.historical_results: Dict[str, Dict[str, VerificationResult]] = {}
+        self.historical_results: dict[str, dict[str, VerificationResult]] = {}
 
     def start_verification(
         self,
-        finished_templates: List[FinishedTemplate],
+        finished_templates: list[FinishedTemplate],
         config: VerificationConfig,
-        question_ids: Optional[List[str]] = None,
-        run_name: Optional[str] = None,
+        question_ids: list[str] | None = None,
+        run_name: str | None = None,
     ) -> str:
         """Start a new verification job."""
         # Validate rubric availability if rubric evaluation is enabled
@@ -74,19 +73,19 @@ class VerificationService:
 
         return job_id
 
-    def get_job_status(self, job_id: str) -> Optional[Dict]:
+    def get_job_status(self, job_id: str) -> dict | None:
         """Get the status of a verification job."""
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
 
-    def get_job_results(self, job_id: str) -> Optional[Dict[str, VerificationResult]]:
+    def get_job_results(self, job_id: str) -> dict[str, VerificationResult] | None:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
             return job.results
         return None
 
-    def get_all_historical_results(self) -> Dict[str, VerificationResult]:
+    def get_all_historical_results(self) -> dict[str, VerificationResult]:
         """Get all historical results across all completed jobs."""
         all_results = {}
         for job_results in self.historical_results.values():
@@ -117,7 +116,7 @@ class VerificationService:
             if job_id in self.futures:
                 del self.futures[job_id]
 
-    def _load_current_rubric(self) -> Optional[Rubric]:
+    def _load_current_rubric(self) -> Rubric | None:
         """
         Load the current rubric from the API.
 
@@ -133,7 +132,7 @@ class VerificationService:
             print(f"Warning: Failed to load rubric: {e}")
             return None
 
-    def _run_verification(self, job: VerificationJob, templates: List[FinishedTemplate]):
+    def _run_verification(self, job: VerificationJob, templates: list[FinishedTemplate]):
         """Run verification for all templates in the job."""
         try:
             job.status = "running"
@@ -298,7 +297,7 @@ class VerificationService:
             job.error_message = str(e)
             job.end_time = time.time()
 
-    def get_progress(self, job_id: str) -> Optional[Dict]:
+    def get_progress(self, job_id: str) -> dict | None:
         """Get progress information for a job."""
         job = self.jobs.get(job_id)
         if not job:

@@ -5,7 +5,6 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from fastapi import File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -18,7 +17,7 @@ except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 try:
-    from karenina.llm.manual_traces import load_manual_traces, get_manual_trace_count, ManualTraceError
+    from karenina.llm.manual_traces import ManualTraceError, get_manual_trace_count, load_manual_traces
 
     MANUAL_TRACES_AVAILABLE = True
 except ImportError:
@@ -119,7 +118,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}")
 
     @app.post("/api/preview-file", response_model=FilePreviewResponse)
-    async def preview_file_endpoint(file_id: str = Form(...), sheet_name: Optional[str] = Form(None)):
+    async def preview_file_endpoint(file_id: str = Form(...), sheet_name: str | None = Form(None)):
         """Get a preview of the uploaded file."""
         if not EXTRACTOR_AVAILABLE:
             raise HTTPException(status_code=500, detail="Question extractor not available")

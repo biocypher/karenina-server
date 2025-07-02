@@ -9,7 +9,6 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-from typing import Optional
 
 # FastAPI imports
 try:
@@ -50,23 +49,23 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
 
     class FilePreviewResponse(BaseModel):
         success: bool
-        total_rows: Optional[int] = None
-        columns: Optional[list] = None
-        preview_rows: Optional[int] = None
-        data: Optional[list] = None
-        error: Optional[str] = None
+        total_rows: int | None = None
+        columns: list | None = None
+        preview_rows: int | None = None
+        data: list | None = None
+        error: str | None = None
 
     class ExtractQuestionsRequest(BaseModel):
         file_id: str
         question_column: str
         answer_column: str
-        sheet_name: Optional[str] = None
+        sheet_name: str | None = None
 
     class ExtractQuestionsResponse(BaseModel):
         success: bool
-        questions_count: Optional[int] = None
-        questions_data: Optional[dict] = None
-        error: Optional[str] = None
+        questions_count: int | None = None
+        questions_data: dict | None = None
+        error: str | None = None
 
     # Template Generation API Models
     class TemplateGenerationConfig(BaseModel):
@@ -78,7 +77,7 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
     class TemplateGenerationRequest(BaseModel):
         questions: QuestionData
         config: TemplateGenerationConfig
-        custom_system_prompt: Optional[str] = None
+        custom_system_prompt: str | None = None
 
     class TemplateGenerationResponse(BaseModel):
         job_id: str
@@ -92,9 +91,9 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         current_question: str
         processed_count: int
         total_count: int
-        estimated_time_remaining: Optional[float] = None
-        error: Optional[str] = None
-        result: Optional[dict] = None
+        estimated_time_remaining: float | None = None
+        error: str | None = None
+        result: dict | None = None
 
 else:
     # Fallback classes for when FastAPI is not available
@@ -146,7 +145,7 @@ class KareninaHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
 
-def find_webapp_directory(webapp_path: Optional[str] = None) -> Path:
+def find_webapp_directory(webapp_path: str | None = None) -> Path:
     """Find the webapp directory relative to the package."""
     # If explicit path provided, use it
     if webapp_path:
@@ -305,7 +304,7 @@ def start_server(
     port: int = 8080,
     dev: bool = False,
     use_fastapi: bool = True,
-    webapp_dir: Optional[str] = None,
+    webapp_dir: str | None = None,
 ) -> None:
     """Start the Karenina webapp server.
 
@@ -360,8 +359,8 @@ def create_fastapi_app(webapp_dir: Path):
     from .api.chat_handlers import register_chat_routes
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
-    from .api.verification_handlers import register_verification_routes
     from .api.rubric_handlers import router as rubric_router
+    from .api.verification_handlers import register_verification_routes
 
     # Register all route handlers
     register_chat_routes(app)
