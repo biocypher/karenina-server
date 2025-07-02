@@ -191,9 +191,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
 
             # Return file for download
             return FileResponse(
-                path=python_file_path,
-                filename=f"questions_{int(time.time())}.py",
-                media_type="text/x-python"
+                path=python_file_path, filename=f"questions_{int(time.time())}.py", media_type="text/x-python"
             )
 
         except Exception as e:
@@ -230,26 +228,26 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
         try:
             # Read file content
             content = await file.read()
-            
+
             # Parse JSON
             try:
                 json_data = json.loads(content)
             except json.JSONDecodeError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid JSON format: {e}")
-            
+
             # Load traces into the trace manager
             load_manual_traces(json_data)
-            
+
             # Get count for response
             trace_count = get_manual_trace_count()
-            
+
             return {
                 "success": True,
                 "message": f"Successfully loaded {trace_count} manual traces",
                 "trace_count": trace_count,
-                "filename": file.filename
+                "filename": file.filename,
             }
-            
+
         except ManualTraceError as e:
             raise HTTPException(status_code=400, detail=f"Manual trace validation error: {e}")
         except Exception as e:
@@ -262,8 +260,5 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             raise HTTPException(status_code=500, detail="Manual traces functionality not available")
 
         trace_count = get_manual_trace_count()
-        
-        return {
-            "loaded": trace_count > 0,
-            "trace_count": trace_count
-        }
+
+        return {"loaded": trace_count > 0, "trace_count": trace_count}

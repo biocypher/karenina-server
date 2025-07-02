@@ -43,8 +43,6 @@ except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 
-
-
 # Pydantic models for Question Extractor API
 if FASTAPI_AVAILABLE and BaseModel is not None:
     # Type definitions
@@ -108,7 +106,6 @@ else:
     TemplateGenerationStatusResponse = None
 
 
-
 # Global verification service instance
 verification_service = None
 
@@ -157,7 +154,7 @@ def find_webapp_directory(webapp_path: Optional[str] = None) -> Path:
         if not webapp_dir.exists():
             raise FileNotFoundError(f"Specified webapp directory not found: {webapp_path}")
         return webapp_dir
-    
+
     # Check environment variable
     env_path = os.environ.get("KARENINA_WEBAPP_DIR")
     if env_path:
@@ -165,7 +162,7 @@ def find_webapp_directory(webapp_path: Optional[str] = None) -> Path:
         if not webapp_dir.exists():
             raise FileNotFoundError(f"Environment KARENINA_WEBAPP_DIR directory not found: {env_path}")
         return webapp_dir
-    
+
     # Try to find webapp directory relative to this file
     current_dir = Path(__file__).parent
     webapp_dir = current_dir.parent / "webapp"
@@ -303,7 +300,13 @@ def start_production_server(dist_dir: Path, host: str, port: int) -> None:
         raise
 
 
-def start_server(host: str = "localhost", port: int = 8080, dev: bool = False, use_fastapi: bool = True, webapp_dir: Optional[str] = None) -> None:
+def start_server(
+    host: str = "localhost",
+    port: int = 8080,
+    dev: bool = False,
+    use_fastapi: bool = True,
+    webapp_dir: Optional[str] = None,
+) -> None:
     """Start the Karenina webapp server.
 
     Args:
@@ -364,7 +367,9 @@ def create_fastapi_app(webapp_dir: Path):
     register_chat_routes(app)
     register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, ExtractQuestionsResponse)
     register_verification_routes(app, verification_service)
-    register_generation_routes(app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse)
+    register_generation_routes(
+        app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
+    )
     app.include_router(rubric_router, prefix="/api")
 
     # Serve static files from the webapp dist directory

@@ -265,30 +265,24 @@ class GenerationService:
         user_prompt: str,
         model_provider: str = "google_genai",
         model_name: str = "gemini-2.0-flash",
-        temperature: float = 0.1
+        temperature: float = 0.1,
     ) -> str:
         """
         Generate rubric traits using LLM.
-        
+
         This is a simple synchronous method for trait generation.
         For now, we don't use the job queue system as trait generation is typically fast.
         """
         from karenina.llm.interface import LLMInterface
-        
+
         # Create LLM interface
         llm = LLMInterface(
-            model_name=model_name,
-            model_provider=model_provider,
-            temperature=temperature,
-            interface="langchain"
+            model_name=model_name, model_provider=model_provider, temperature=temperature, interface="langchain"
         )
-        
+
         # Generate response
-        response = llm.generate(
-            prompt=user_prompt,
-            system_prompt=system_prompt
-        )
-        
+        response = llm.generate(prompt=user_prompt, system_prompt=system_prompt)
+
         return response
 
 

@@ -28,6 +28,14 @@ class VerificationService:
         run_name: Optional[str] = None,
     ) -> str:
         """Start a new verification job."""
+        # Validate rubric availability if rubric evaluation is enabled
+        if getattr(config, "rubric_enabled", False):
+            current_rubric = self._load_current_rubric()
+            if current_rubric is None:
+                raise ValueError(
+                    "Rubric evaluation is enabled but no rubric is configured. Please create a rubric first."
+                )
+
         job_id = str(uuid.uuid4())
 
         # Auto-generate run name if not provided
@@ -112,13 +120,14 @@ class VerificationService:
     def _load_current_rubric(self) -> Optional[Rubric]:
         """
         Load the current rubric from the API.
-        
+
         Returns:
             The current rubric if available, None otherwise
         """
         try:
             # Import here to avoid circular imports
             from ..api.rubric_handlers import current_rubric
+
             return current_rubric
         except Exception as e:
             print(f"Warning: Failed to load rubric: {e}")
