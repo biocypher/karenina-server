@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.benchmark.verifier import run_question_verification
+from karenina.schemas.rubric_class import Rubric
 
 
 class VerificationService:
@@ -108,11 +109,35 @@ class VerificationService:
             if job_id in self.futures:
                 del self.futures[job_id]
 
+    def _load_current_rubric(self) -> Optional[Rubric]:
+        """
+        Load the current rubric from the API.
+        
+        Returns:
+            The current rubric if available, None otherwise
+        """
+        try:
+            # Import here to avoid circular imports
+            from ..api.rubric_handlers import current_rubric
+            return current_rubric
+        except Exception as e:
+            print(f"Warning: Failed to load rubric: {e}")
+            return None
+
     def _run_verification(self, job: VerificationJob, templates: List[FinishedTemplate]):
         """Run verification for all templates in the job."""
         try:
             job.status = "running"
             job.start_time = time.time()
+
+            # Load rubric if rubric evaluation is enabled
+            rubric = None
+            if getattr(job.config, "rubric_enabled", False):
+                rubric = self._load_current_rubric()
+                if rubric:
+                    print(f"Loaded rubric '{rubric.title}' with {len(rubric.traits)} traits for verification")
+                else:
+                    print("Warning: Rubric evaluation enabled but no rubric found")
 
             for i, template in enumerate(templates):
                 if job.status == "cancelled":
@@ -130,6 +155,7 @@ class VerificationService:
                         question_text=template.question_text,
                         template_code=template.template_code,
                         config=job.config,
+                        rubric=rubric,
                     )
 
                     # Process each model combination result
