@@ -159,6 +159,7 @@ def _build_default_rubric_system_prompt() -> str:
 
 <important>
 Generate traits that evaluate QUALITATIVE aspects of how the answer is presented, NOT the factual accuracy or correctness of the content. The traits should be assessable by someone who doesn't know the actual answer to the question.
+You will be provided with a set of example question-answer pairs from the domain being evaluated. These examples will help you understand the context and typical response patterns in this specific domain, allowing you to generate more targeted and relevant evaluation traits.
 </important>
 
 <trait_requirements>
@@ -168,16 +169,6 @@ Generate traits that evaluate QUALITATIVE aspects of how the answer is presented
 - Useful for distinguishing between well-structured and poorly-structured responses
 - Focus on HOW information is presented, not WHETHER it's correct
 </trait_requirements>
-
-<output_format>
-For each trait, provide:
-<trait>
-  <name>Short, descriptive identifier (2-4 words)</name>
-  <description>Clear explanation of what aspect of presentation quality is being evaluated</description>
-  <type>Either "boolean" (true/false) or "score" (1-5 scale)</type>
-  <evaluation_guidance>Brief guidance on how to assess this trait without domain expertise</evaluation_guidance>
-</trait>
-</output_format>
 
 <example_traits>
 Consider qualitative aspects such as:
@@ -193,44 +184,65 @@ Consider qualitative aspects such as:
 - Tone appropriateness (formal, casual, technical)
 - Use of formatting (lists, headers, emphasis)
 </example_traits>
+
+<output_format>
+You can provide a reasoning trace explaining your choices by encapsulating the traits in a <reasoning> tags.
+Once you have state your resaoning you should wrap the traits into a JSON code fence in order to make it easier to parse.
+
+Each trait should be in the following format:
+```json
+{
+    "name": # Short, descriptive identifier (2-4 words)
+    "description": # Clear description of what this trait evaluates
+    "kind": # Either "boolean" (true/false) or "score" (1-5 scale)
+    "min_score": # null,
+    "max_score": null
+}
+```
+</output_format>
+
+<example_output>
+<reasoning>
+I have analyzed the question-answer and ....
+</reasoning>
+```json
+[
+    {
+        "name": "clarity",
+        "description": "Is the response clear and easy to understand?",
+        "kind": "boolean"
+    },
+    {
+        "name": "completeness",
+        "description": "How complete is the response on a scale of 1-5?",
+        "kind": "score",
+        "min_score": 1,
+        "max_score": 5
+    }
+    ...
+]
+```
+</example_output>
 """
 
 
 def _build_rubric_generation_prompt(questions: list[Question], user_suggestions: list[str] | None) -> str:
     """Build the user prompt for rubric trait generation."""
-    prompt_parts = ["Please analyze the following questions and suggest appropriate evaluation traits:\n"]
+    user_prompt = '''<question_answer_pairs>\n'''
 
     # Add question context
-    for i, question in enumerate(questions[:5], 1):  # Limit to first 5 questions
-        prompt_parts.append(f"{i}. {question.question}")
+    for i, question in enumerate(questions, 1):
+        user_prompt += f"{i}. {question.question}: {question.raw_answer}\n"
 
-    if len(questions) > 5:
-        prompt_parts.append(f"... and {len(questions) - 5} more questions")
+    user_prompt += '''</question_answer_pairs>'''
 
     # Add user suggestions if provided
+    user_prompt += '''\n\n<user_traits_suggestions>'''
     if user_suggestions:
-        prompt_parts.append(f"\nUser suggestions for traits to consider: {', '.join(user_suggestions)}")
+        user_prompt += f"{', '.join(user_suggestions)}"
+    user_prompt += '''\n</user_traits_suggestions>'''
 
-    prompt_parts.append("""
-Please suggest 3-7 evaluation traits in the following JSON format:
-[
-  {
-    "name": "trait_name",
-    "description": "Clear description of what this trait evaluates",
-    "kind": "boolean",
-    "min_score": null,
-    "max_score": null
-  },
-  {
-    "name": "another_trait",
-    "description": "Description for score-based trait",
-    "kind": "score",
-    "min_score": 1,
-    "max_score": 5
-  }
-]""")
-
-    return "\n".join(prompt_parts)
+    return user_prompt
 
 
 def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
@@ -238,9 +250,16 @@ def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
     import json
     import re
 
-    # Try to extract JSON from the generated text
-    json_match = re.search(r"\[.*\]", generated_text, re.DOTALL)
-    if not json_match:
+    # First, try to extract JSON from code fences (```json...```)
+    json_fence_match = re.search(r"```json\s*\n(.*?)\n```", generated_text, re.DOTALL)
+    if json_fence_match:
+        json_content = json_fence_match.group(1).strip()
+    else:
+        # Fallback: try to extract raw JSON array
+        json_match = re.search(r"\[.*\]", generated_text, re.DOTALL)
+        json_content = json_match.group().strip() if json_match else None
+
+    if not json_content:
         # Fallback: create some default traits
         return [
             RubricTrait(name="clarity", description="Is the response clear and easy to understand?", kind="boolean"),
@@ -254,7 +273,7 @@ def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
         ]
 
     try:
-        trait_data = json.loads(json_match.group())
+        trait_data = json.loads(json_content)
         traits = []
 
         for trait_dict in trait_data:
