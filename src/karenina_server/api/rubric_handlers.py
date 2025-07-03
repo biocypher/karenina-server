@@ -2,7 +2,6 @@
 API handlers for rubric management and trait generation.
 """
 
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -22,7 +21,7 @@ current_rubric: Rubric | None = None
 class RubricTraitGenerationRequest(BaseModel):
     """Request to generate rubric traits using LLM."""
 
-    questions: list[dict[str, Any]]  # Question data from frontend
+    questions: dict[str, dict[str, Any]]  # Question data from frontend as object
     system_prompt: str | None = None
     user_suggestions: list[str] | None = None
     model_provider: str = "google_genai"
@@ -48,10 +47,10 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
     try:
         # Convert questions to internal format
         questions = []
-        for q_data in request.questions:
+        for q_id, q_data in request.questions.items():
             question = Question(
-                id=q_data.get("id", str(uuid.uuid4())),
-                question=q_data.get("text", "Unknown question"),
+                id=q_id,
+                question=q_data.get("question", "Unknown question"),
                 raw_answer=q_data.get("raw_answer", "Unknown answer"),
                 tags=q_data.get("tags", [])
             )
@@ -87,7 +86,7 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating rubric traits: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating rubric traits: {str(e)}") from e
 
 
 @router.post("/rubric", response_model=dict[str, str])
@@ -117,7 +116,7 @@ async def create_or_update_rubric(rubric: Rubric):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving rubric: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error saving rubric: {str(e)}") from e
 
 
 @router.get("/rubric", response_model=Rubric | None)
@@ -230,6 +229,24 @@ Please suggest 3-7 evaluation traits in the following JSON format:
     "max_score": 5
   }
 ]""")
+
+    import logging
+
+    # Set up file logging
+    log_file = "/Users/carli/Projects/karenina_dev/verification_debug.txt"
+    logger = logging.getLogger(__name__)
+
+    # Create file handler if it doesn't exist
+    if not logger.handlers:
+        file_handler = logging.FileHandler(log_file, mode='a')
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.setLevel(logging.INFO)
+
+    joined_prompt = "\n".join(prompt_parts)
+    logger.info(f"{joined_prompt}")
 
     return "\n".join(prompt_parts)
 
