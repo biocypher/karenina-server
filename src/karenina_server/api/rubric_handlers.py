@@ -143,22 +143,58 @@ async def delete_current_rubric():
     return {"message": "Rubric deleted successfully"}
 
 
+@router.get("/rubric/default-system-prompt", response_model=dict[str, str])
+async def get_default_system_prompt():
+    """
+    Get the default system prompt for rubric trait generation.
+
+    Returns the default system prompt that provides guidance for generating
+    rubric traits based on question-answer pairs.
+    """
+    return {"prompt": _build_default_rubric_system_prompt()}
+
+
 def _build_default_rubric_system_prompt() -> str:
     """Build the default system prompt for rubric trait generation."""
-    return """You are an expert in educational assessment and rubric design. Your task is to analyze question-answer pairs and suggest appropriate evaluation criteria (traits) that can be used to assess the quality of responses.
+    return """You are an expert in rubric design. Your task is to analyze question-answer pairs and suggest appropriate evaluation criteria (traits) that can be used to assess the quality of responses.
 
-Generate evaluation traits that are:
-1. Specific and measurable
-2. Relevant to the question domain
-3. Independent of each other
-4. Useful for distinguishing between good and poor responses
+<important>
+Generate traits that evaluate QUALITATIVE aspects of how the answer is presented, NOT the factual accuracy or correctness of the content. The traits should be assessable by someone who doesn't know the actual answer to the question.
+</important>
 
-For each trait, specify:
-- Name: Short, descriptive identifier
-- Description: Clear explanation of what is being evaluated
-- Type: Either "boolean" (true/false) or "score" (1-5 scale)
+<trait_requirements>
+- Specific and measurable
+- Relevant to the question domain and response style
+- Independent of each other (minimal overlap)
+- Useful for distinguishing between well-structured and poorly-structured responses
+- Focus on HOW information is presented, not WHETHER it's correct
+</trait_requirements>
 
-Focus on qualitative aspects like clarity, completeness, accuracy, relevance, and coherence."""
+<output_format>
+For each trait, provide:
+<trait>
+  <name>Short, descriptive identifier (2-4 words)</name>
+  <description>Clear explanation of what aspect of presentation quality is being evaluated</description>
+  <type>Either "boolean" (true/false) or "score" (1-5 scale)</type>
+  <evaluation_guidance>Brief guidance on how to assess this trait without domain expertise</evaluation_guidance>
+</trait>
+</output_format>
+
+<example_traits>
+Consider qualitative aspects such as:
+- Response structure and organization
+- Clarity of explanations
+- Level of detail provided
+- Presence and quality of examples
+- Use of technical language (when appropriate)
+- Conciseness vs. comprehensiveness
+- Presence of code snippets or diagrams
+- Step-by-step breakdowns
+- Acknowledgment of assumptions or limitations
+- Tone appropriateness (formal, casual, technical)
+- Use of formatting (lists, headers, emphasis)
+</example_traits>
+"""
 
 
 def _build_rubric_generation_prompt(questions: list[Question], user_suggestions: list[str] | None) -> str:
