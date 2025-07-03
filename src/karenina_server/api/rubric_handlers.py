@@ -18,15 +18,22 @@ router = APIRouter()
 current_rubric: Rubric | None = None
 
 
+class RubricTraitGenerationConfig(BaseModel):
+    """Configuration for rubric trait generation."""
+    
+    model_provider: str = "google_genai"
+    model_name: str = "gemini-2.0-flash"
+    temperature: float = 0.1
+    interface: str = "langchain"
+
+
 class RubricTraitGenerationRequest(BaseModel):
     """Request to generate rubric traits using LLM."""
 
     questions: dict[str, dict[str, Any]]  # Question data from frontend as object
     system_prompt: str | None = None
     user_suggestions: list[str] | None = None
-    model_provider: str = "google_genai"
-    model_name: str = "gemini-2.0-flash"
-    temperature: float = 0.1
+    config: RubricTraitGenerationConfig
 
 
 class RubricTraitGenerationResponse(BaseModel):
@@ -73,9 +80,9 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
         generated_text = generation_service.generate_rubric_traits(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            model_provider=request.model_provider,
-            model_name=request.model_name,
-            temperature=request.temperature,
+            model_provider=request.config.model_provider,
+            model_name=request.config.model_name,
+            temperature=request.config.temperature,
         )
 
         # Parse the generated text into RubricTrait objects
