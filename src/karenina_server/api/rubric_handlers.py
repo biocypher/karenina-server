@@ -230,24 +230,6 @@ Please suggest 3-7 evaluation traits in the following JSON format:
   }
 ]""")
 
-    import logging
-
-    # Set up file logging
-    log_file = "/Users/carli/Projects/karenina_dev/verification_debug.txt"
-    logger = logging.getLogger(__name__)
-
-    # Create file handler if it doesn't exist
-    if not logger.handlers:
-        file_handler = logging.FileHandler(log_file, mode='a')
-        file_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        logger.setLevel(logging.INFO)
-
-    joined_prompt = "\n".join(prompt_parts)
-    logger.info(f"{joined_prompt}")
-
     return "\n".join(prompt_parts)
 
 

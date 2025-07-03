@@ -21,7 +21,6 @@ def client():
 def sample_rubric_data():
     """Sample rubric data for testing."""
     return {
-        "title": "Test Rubric",
         "traits": [
             {
                 "name": "accuracy",
@@ -45,14 +44,14 @@ def sample_rubric_data():
 def sample_trait_generation_request():
     """Sample trait generation request data."""
     return {
-        "questions": [
-            {"id": "q1", "text": "What is the capital of France?"},
-            {"id": "q2", "text": "Explain photosynthesis."}
-        ],
+        "questions": {
+            "q1": {"question": "What is the capital of France?", "raw_answer": "Paris", "tags": []},
+            "q2": {"question": "Explain photosynthesis.", "raw_answer": "Process plants use to make food", "tags": []}
+        },
         "system_prompt": "Generate evaluation criteria for these questions.",
         "user_suggestions": ["clarity", "accuracy"],
-        "model_provider": "openai",
-        "model_name": "gpt-3.5-turbo",
+        "model_provider": "google_genai",
+        "model_name": "gemini-2.0-flash",
         "temperature": 0.1
     }
 
@@ -67,25 +66,23 @@ class TestRubricCRUD:
         assert response.status_code == 200
         data = response.json()
         assert data["message"] == "Rubric saved successfully"
-        assert data["title"] == "Test Rubric"
 
-    def test_create_rubric_empty_title(self, client, sample_rubric_data):
-        """Test rubric creation with empty title."""
-        sample_rubric_data["title"] = ""
-
-        response = client.post("/api/rubric", json=sample_rubric_data)
-
-        assert response.status_code == 400
-        assert "title cannot be empty" in response.json()["detail"]
-
-    def test_create_rubric_whitespace_title(self, client, sample_rubric_data):
-        """Test rubric creation with whitespace-only title."""
-        sample_rubric_data["title"] = "   "
+    def test_create_rubric_invalid_trait_name(self, client, sample_rubric_data):
+        """Test rubric creation with invalid trait name."""
+        sample_rubric_data["traits"][0]["name"] = ""
 
         response = client.post("/api/rubric", json=sample_rubric_data)
 
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert isinstance(detail, list) and len(detail) > 0
+
+    def test_create_rubric_missing_traits(self, client):
+        """Test rubric creation with missing traits."""
+        response = client.post("/api/rubric", json={})
+
         assert response.status_code == 400
-        assert "title cannot be empty" in response.json()["detail"]
+        assert "must have at least one trait" in response.json()["detail"]
 
     def test_create_rubric_empty_traits(self, client, sample_rubric_data):
         """Test rubric creation with empty traits list."""
@@ -130,7 +127,6 @@ class TestRubricCRUD:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["title"] == "Test Rubric"
         assert len(data["traits"]) == 2
 
     def test_get_rubric_not_exists(self, client):
@@ -150,7 +146,6 @@ class TestRubricCRUD:
 
         # Update it
         updated_data = sample_rubric_data.copy()
-        updated_data["title"] = "Updated Rubric"
         updated_data["traits"].append({
             "name": "clarity",
             "description": "Is the response clear?",
@@ -160,12 +155,11 @@ class TestRubricCRUD:
         response = client.post("/api/rubric", json=updated_data)
 
         assert response.status_code == 200
-        assert response.json()["title"] == "Updated Rubric"
+        assert response.json()["message"] == "Rubric saved successfully"
 
         # Verify the update
         get_response = client.get("/api/rubric")
         data = get_response.json()
-        assert data["title"] == "Updated Rubric"
         assert len(data["traits"]) == 3
 
     def test_delete_rubric_exists(self, client, sample_rubric_data):
@@ -232,7 +226,7 @@ class TestRubricTraitGeneration:
 
     def test_generate_traits_no_questions(self, client, sample_trait_generation_request):
         """Test trait generation with no questions."""
-        sample_trait_generation_request["questions"] = []
+        sample_trait_generation_request["questions"] = {}
 
         response = client.post("/api/generate-rubric-traits", json=sample_trait_generation_request)
 
@@ -273,7 +267,7 @@ class TestRubricTraitGeneration:
     def test_generate_traits_minimal_request(self, client):
         """Test trait generation with minimal request data."""
         minimal_request = {
-            "questions": [{"id": "q1", "text": "Test question?"}]
+            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}}
         }
 
         with patch("karenina_server.api.rubric_handlers.GenerationService") as mock_service_class:
@@ -313,7 +307,6 @@ class TestRubricValidation:
     def test_rubric_trait_validation(self, client):
         """Test validation of individual rubric traits."""
         invalid_trait_data = {
-            "title": "Invalid Trait Test",
             "traits": [
                 {
                     "name": "",  # Empty name should be caught by Pydantic
@@ -331,7 +324,6 @@ class TestRubricValidation:
     def test_rubric_invalid_trait_kind(self, client):
         """Test validation of invalid trait kind."""
         invalid_kind_data = {
-            "title": "Invalid Kind Test",
             "traits": [
                 {
                     "name": "test_trait",
@@ -354,7 +346,6 @@ class TestRubricIntegration:
         """Test complete workflow: create, read, update, delete."""
         # Step 1: Create rubric
         create_data = {
-            "title": "Workflow Test Rubric",
             "traits": [
                 {
                     "name": "initial_trait",
@@ -371,12 +362,10 @@ class TestRubricIntegration:
         read_response = client.get("/api/rubric")
         assert read_response.status_code == 200
         data = read_response.json()
-        assert data["title"] == "Workflow Test Rubric"
         assert len(data["traits"]) == 1
 
         # Step 3: Update rubric
         update_data = data.copy()
-        update_data["title"] = "Updated Workflow Rubric"
         update_data["traits"].append({
             "name": "added_trait",
             "description": "Added during update",
@@ -391,7 +380,6 @@ class TestRubricIntegration:
         # Verify update
         read_again_response = client.get("/api/rubric")
         updated_data = read_again_response.json()
-        assert updated_data["title"] == "Updated Workflow Rubric"
         assert len(updated_data["traits"]) == 2
 
         # Step 4: Delete rubric
@@ -428,7 +416,7 @@ class TestRubricIntegration:
         """
 
         generation_request = {
-            "questions": [{"id": "q1", "text": "Test question?"}]
+            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}}
         }
 
         generation_response = client.post("/api/generate-rubric-traits", json=generation_request)
@@ -437,7 +425,6 @@ class TestRubricIntegration:
 
         # Step 2: Create rubric using generated traits
         rubric_data = {
-            "title": "Generated Traits Rubric",
             "traits": generated_traits
         }
 
@@ -447,7 +434,6 @@ class TestRubricIntegration:
         # Step 3: Verify the created rubric
         read_response = client.get("/api/rubric")
         rubric = read_response.json()
-        assert rubric["title"] == "Generated Traits Rubric"
         assert len(rubric["traits"]) == 2
         assert rubric["traits"][0]["name"] == "generated_accuracy"
         assert rubric["traits"][1]["name"] == "generated_completeness"
@@ -462,14 +448,12 @@ class TestRubricIntegration:
             response = client.get("/api/rubric")
             assert response.status_code == 200
             data = response.json()
-            assert data["title"] == "Test Rubric"
             assert len(data["traits"]) == 2
 
     def test_rubric_overwrite_behavior(self, client):
         """Test that creating a new rubric overwrites the existing one."""
         # Create first rubric
         first_rubric = {
-            "title": "First Rubric",
             "traits": [
                 {"name": "trait1", "description": "First trait", "kind": "boolean"}
             ]
@@ -478,7 +462,6 @@ class TestRubricIntegration:
 
         # Create second rubric (should overwrite)
         second_rubric = {
-            "title": "Second Rubric",
             "traits": [
                 {"name": "trait2", "description": "Second trait", "kind": "score", "min_score": 1, "max_score": 3}
             ]
@@ -488,7 +471,6 @@ class TestRubricIntegration:
         # Verify only second rubric exists
         response = client.get("/api/rubric")
         data = response.json()
-        assert data["title"] == "Second Rubric"
         assert len(data["traits"]) == 1
         assert data["traits"][0]["name"] == "trait2"
 
