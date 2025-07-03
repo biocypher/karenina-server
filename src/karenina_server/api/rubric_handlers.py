@@ -25,8 +25,8 @@ class RubricTraitGenerationRequest(BaseModel):
     questions: list[dict[str, Any]]  # Question data from frontend
     system_prompt: str | None = None
     user_suggestions: list[str] | None = None
-    model_provider: str = "openai"
-    model_name: str = "gpt-3.5-turbo"
+    model_provider: str = "google_genai"
+    model_name: str = "gemini-2.0-flash"
     temperature: float = 0.1
 
 
@@ -101,9 +101,6 @@ async def create_or_update_rubric(rubric: Rubric):
 
     try:
         # Validate rubric
-        if not rubric.title.strip():
-            raise HTTPException(status_code=400, detail="Rubric title cannot be empty")
-
         if not rubric.traits:
             raise HTTPException(status_code=400, detail="Rubric must have at least one trait")
 
@@ -115,7 +112,7 @@ async def create_or_update_rubric(rubric: Rubric):
         # Store the rubric
         current_rubric = rubric
 
-        return {"message": "Rubric saved successfully", "title": rubric.title}
+        return {"message": "Rubric saved successfully"}
 
     except HTTPException:
         raise

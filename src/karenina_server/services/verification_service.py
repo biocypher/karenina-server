@@ -143,7 +143,7 @@ class VerificationService:
             if getattr(job.config, "rubric_enabled", False):
                 rubric = self._load_current_rubric()
                 if rubric:
-                    print(f"Loaded rubric '{rubric.title}' with {len(rubric.traits)} traits for verification")
+                    print(f"Loaded rubric with {len(rubric.traits)} traits for verification")
                 else:
                     print("Warning: Rubric evaluation enabled but no rubric found")
 
