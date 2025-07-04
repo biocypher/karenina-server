@@ -17,8 +17,8 @@ router = APIRouter()
 
 class RubricTraitGenerationConfig(BaseModel):
     """Configuration for rubric trait generation."""
-    
-    model_provider: str = "google_genai"
+
+    model_provider: str | None = None
     model_name: str = "gemini-2.0-flash"
     temperature: float = 0.1
     interface: str = "langchain"
@@ -74,12 +74,20 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
 
         # For now, we'll generate traits synchronously
         # In a production system, this might use the job queue system
+        # Determine model_provider based on interface
+        if request.config.interface == "langchain":
+            model_provider = request.config.model_provider or "google_genai"
+        else:
+            # For openrouter, provider should be empty
+            model_provider = ""
+
         generated_text = generation_service.generate_rubric_traits(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            model_provider=request.config.model_provider,
+            model_provider=model_provider,
             model_name=request.config.model_name,
             temperature=request.config.temperature,
+            interface=request.config.interface,
         )
 
         # Parse the generated text into RubricTrait objects
