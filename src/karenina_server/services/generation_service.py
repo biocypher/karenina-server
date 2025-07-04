@@ -145,9 +145,13 @@ class GenerationService:
             else:
                 # Old config format (dict)
                 model_name = config.get("model_name", config.get("model", "gemini-2.0-flash"))
-                model_provider = config.get("model_provider", "google_genai")
-                temperature = config.get("temperature", 0.1)
                 interface = config.get("interface", "langchain")
+                # Only set default provider for langchain interface
+                if interface == "langchain":
+                    model_provider = config.get("model_provider", "google_genai")
+                else:
+                    model_provider = config.get("model_provider", "")
+                temperature = config.get("temperature", 0.1)
 
             question_ids = list(job.questions_data.keys())
 
@@ -265,6 +269,7 @@ class GenerationService:
         model_provider: str = "google_genai",
         model_name: str = "gemini-2.0-flash",
         temperature: float = 0.1,
+        interface: str = "langchain",
     ) -> str:
         """
         Generate rubric traits using LLM.
@@ -272,16 +277,34 @@ class GenerationService:
         This is a simple synchronous method for trait generation.
         For now, we don't use the job queue system as trait generation is typically fast.
         """
-        from karenina.llm.interface import call_model
-
-        # Generate response using call_model function
-        response = call_model(
-            model=model_name,
-            provider=model_provider,
-            message=user_prompt,
-            system_message=system_prompt,
-            temperature=temperature
-        )
+        # Generate response using appropriate interface
+        if interface == "openrouter":
+            # Use init_chat_model_unified for OpenRouter
+            from karenina.llm.interface import call_model, init_chat_model_unified
+            chat_model = init_chat_model_unified(
+                provider="",  # Empty provider for OpenRouter
+                model=model_name,
+                temperature=temperature,
+                interface=interface
+            )
+            # Create messages for chat model
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            response = chat_model.invoke(messages)
+            return response.content
+        else:
+            # Use call_model for langchain interface
+            from karenina.llm.interface import call_model
+            response = call_model(
+                model=model_name,
+                provider=model_provider,
+                message=user_prompt,
+                system_message=system_prompt,
+                temperature=temperature
+            )
+            return response.message
 
         return response.message
 

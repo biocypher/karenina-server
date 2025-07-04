@@ -474,3 +474,101 @@ class TestRubricIntegration:
         assert len(data["traits"]) == 1
         assert data["traits"][0]["name"] == "trait2"
 
+
+class TestOpenRouterConfiguration:
+    """Test OpenRouter-specific configuration handling."""
+
+    def test_openrouter_config_no_default_provider(self):
+        """Test that OpenRouter config doesn't default to google_genai."""
+        from karenina_server.api.rubric_handlers import RubricTraitGenerationConfig
+        
+        # Create config with OpenRouter interface
+        config = RubricTraitGenerationConfig(
+            model_name="openrouter/cypher-alpha:free",
+            temperature=0.1,
+            interface="openrouter"
+        )
+        
+        # Provider should be None, not defaulted to google_genai
+        assert config.model_provider is None
+        assert config.interface == "openrouter"
+        assert config.model_name == "openrouter/cypher-alpha:free"
+
+    @patch("karenina_server.api.rubric_handlers.GenerationService")
+    def test_generate_traits_with_openrouter(self, mock_service_class, client):
+        """Test trait generation with OpenRouter interface."""
+        mock_service = Mock()
+        mock_service_class.return_value = mock_service
+        mock_service.generate_rubric_traits.return_value = """
+        [
+            {
+                "name": "clarity",
+                "description": "Is the response clear?",
+                "kind": "boolean"
+            }
+        ]
+        """
+
+        request_data = {
+            "questions": {
+                "q1": {"question": "Test?", "raw_answer": "Answer", "tags": []}
+            },
+            "config": {
+                "model_name": "openrouter/cypher-alpha:free",
+                "temperature": 0.1,
+                "interface": "openrouter"
+                # Note: no model_provider field
+            }
+        }
+
+        response = client.post("/api/generate-rubric-traits", json=request_data)
+        assert response.status_code == 200
+
+        # Verify the service was called with correct parameters
+        call_args = mock_service.generate_rubric_traits.call_args
+        assert call_args.kwargs["model_provider"] == ""  # Should be empty for OpenRouter
+        assert call_args.kwargs["interface"] == "openrouter"
+        assert call_args.kwargs["model_name"] == "openrouter/cypher-alpha:free"
+
+    @patch("karenina_server.api.rubric_handlers.GenerationService")
+    def test_generate_traits_langchain_vs_openrouter(self, mock_service_class, client):
+        """Test different handling of LangChain vs OpenRouter interfaces."""
+        mock_service = Mock()
+        mock_service_class.return_value = mock_service
+        mock_service.generate_rubric_traits.return_value = "[]"
+
+        # Test 1: LangChain with provider
+        langchain_request = {
+            "questions": {"q1": {"question": "Test?", "raw_answer": "Answer", "tags": []}},
+            "config": {
+                "model_provider": "google_genai",
+                "model_name": "gemini-2.0-flash",
+                "temperature": 0.1,
+                "interface": "langchain"
+            }
+        }
+        
+        response = client.post("/api/generate-rubric-traits", json=langchain_request)
+        assert response.status_code == 200
+        
+        call_args = mock_service.generate_rubric_traits.call_args
+        assert call_args.kwargs["model_provider"] == "google_genai"
+        assert call_args.kwargs["interface"] == "langchain"
+
+        # Test 2: OpenRouter without provider
+        openrouter_request = {
+            "questions": {"q1": {"question": "Test?", "raw_answer": "Answer", "tags": []}},
+            "config": {
+                "model_name": "openrouter/cypher-alpha:free",
+                "temperature": 0.1,
+                "interface": "openrouter"
+            }
+        }
+        
+        response = client.post("/api/generate-rubric-traits", json=openrouter_request)
+        assert response.status_code == 200
+        
+        call_args = mock_service.generate_rubric_traits.call_args
+        assert call_args.kwargs["model_provider"] == ""  # Empty for OpenRouter
+        assert call_args.kwargs["interface"] == "openrouter"
+
