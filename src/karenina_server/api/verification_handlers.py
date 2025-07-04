@@ -35,15 +35,22 @@ def register_verification_routes(app, verification_service):
             # Create config
             config = VerificationConfig(**config_data)
 
+            # Validate rubric availability if rubric evaluation is enabled
+            if getattr(config, "rubric_enabled", False):
+                from .rubric_handlers import current_rubric
+
+                if current_rubric is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Rubric evaluation is enabled but no rubric is configured. Please create a rubric first.",
+                    )
+
             # Create finished templates
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
 
             # Start verification
             job_id = verification_service.start_verification(
-                finished_templates=finished_templates,
-                config=config,
-                question_ids=question_ids,
-                run_name=run_name
+                finished_templates=finished_templates, config=config, question_ids=question_ids, run_name=run_name
             )
 
             # Get the job to return the actual run name (auto-generated if not provided)

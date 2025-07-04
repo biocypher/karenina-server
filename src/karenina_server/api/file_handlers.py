@@ -5,7 +5,6 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from fastapi import File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -18,7 +17,7 @@ except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 try:
-    from karenina.llm.manual_traces import load_manual_traces, get_manual_trace_count, ManualTraceError
+    from karenina.llm.manual_traces import ManualTraceError, get_manual_trace_count, load_manual_traces
 
     MANUAL_TRACES_AVAILABLE = True
 except ImportError:
@@ -119,7 +118,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}")
 
     @app.post("/api/preview-file", response_model=FilePreviewResponse)
-    async def preview_file_endpoint(file_id: str = Form(...), sheet_name: Optional[str] = Form(None)):
+    async def preview_file_endpoint(file_id: str = Form(...), sheet_name: str | None = Form(None)):
         """Get a preview of the uploaded file."""
         if not EXTRACTOR_AVAILABLE:
             raise HTTPException(status_code=500, detail="Question extractor not available")
@@ -191,9 +190,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
 
             # Return file for download
             return FileResponse(
-                path=python_file_path,
-                filename=f"questions_{int(time.time())}.py",
-                media_type="text/x-python"
+                path=python_file_path, filename=f"questions_{int(time.time())}.py", media_type="text/x-python"
             )
 
         except Exception as e:
@@ -230,26 +227,26 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
         try:
             # Read file content
             content = await file.read()
-            
+
             # Parse JSON
             try:
                 json_data = json.loads(content)
             except json.JSONDecodeError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid JSON format: {e}")
-            
+
             # Load traces into the trace manager
             load_manual_traces(json_data)
-            
+
             # Get count for response
             trace_count = get_manual_trace_count()
-            
+
             return {
                 "success": True,
                 "message": f"Successfully loaded {trace_count} manual traces",
                 "trace_count": trace_count,
-                "filename": file.filename
+                "filename": file.filename,
             }
-            
+
         except ManualTraceError as e:
             raise HTTPException(status_code=400, detail=f"Manual trace validation error: {e}")
         except Exception as e:
@@ -262,8 +259,5 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             raise HTTPException(status_code=500, detail="Manual traces functionality not available")
 
         trace_count = get_manual_trace_count()
-        
-        return {
-            "loaded": trace_count > 0,
-            "trace_count": trace_count
-        }
+
+        return {"loaded": trace_count > 0, "trace_count": trace_count}

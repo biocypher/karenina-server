@@ -4,12 +4,15 @@ from fastapi import HTTPException
 
 try:
     from karenina.llm import ChatRequest, ChatResponse, call_model, delete_session, get_session, list_sessions
+
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
 
 
-def register_generation_routes(app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse):
+def register_generation_routes(
+    app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
+):
     """Register template generation-related routes."""
 
     @app.post("/api/generate-answer-templates", response_model=TemplateGenerationResponse)
@@ -17,7 +20,8 @@ def register_generation_routes(app, TemplateGenerationRequest, TemplateGeneratio
         """Start answer template generation for a set of questions."""
         # Import LLM_AVAILABLE from server to maintain compatibility with tests
         from .. import server
-        if not getattr(server, 'LLM_AVAILABLE', LLM_AVAILABLE):
+
+        if not getattr(server, "LLM_AVAILABLE", LLM_AVAILABLE):
             raise HTTPException(status_code=503, detail="LLM functionality not available")
 
         try:

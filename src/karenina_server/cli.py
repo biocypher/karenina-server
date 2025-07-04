@@ -4,7 +4,9 @@ import argparse
 import sys
 
 
-def serve_webapp(host: str = "localhost", port: int = 8080, dev: bool = False, use_fastapi: bool = True, webapp_dir: str = None) -> None:
+def serve_webapp(
+    host: str = "localhost", port: int = 8080, dev: bool = False, use_fastapi: bool = True, webapp_dir: str = None
+) -> None:
     """Serve the Karenina webapp locally.
 
     Args:
@@ -48,7 +50,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "serve":
-        serve_webapp(host=args.host, port=args.port, dev=args.dev, use_fastapi=not args.simple, webapp_dir=getattr(args, 'webapp_dir', None))
+        serve_webapp(
+            host=args.host,
+            port=args.port,
+            dev=args.dev,
+            use_fastapi=not args.simple,
+            webapp_dir=getattr(args, "webapp_dir", None),
+        )
     else:
         parser.print_help()
 

@@ -4,10 +4,9 @@ import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional
 
-from karenina.utils.code_parser import extract_and_combine_codeblocks
 from karenina.answers.generator import generate_answer_template
+from karenina.utils.code_parser import extract_and_combine_codeblocks
 
 
 class TemplateGenerationJob:
@@ -71,8 +70,8 @@ class GenerationService:
 
     def __init__(self, max_workers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.jobs: Dict[str, TemplateGenerationJob] = {}
-        self.futures: Dict[str, any] = {}  # Add missing futures dict
+        self.jobs: dict[str, TemplateGenerationJob] = {}
+        self.futures: dict[str, any] = {}  # Add missing futures dict
 
     def start_generation(self, questions_data: dict, config: dict, custom_system_prompt: str = None) -> str:
         """Start a new template generation job."""
@@ -95,7 +94,7 @@ class GenerationService:
 
         return job_id
 
-    def get_job_status(self, job_id: str) -> Optional[dict]:
+    def get_job_status(self, job_id: str) -> dict | None:
         """Get the status of a generation job."""
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
@@ -109,7 +108,7 @@ class GenerationService:
             return True
         return False
 
-    def get_job_results(self, job_id: str) -> Optional[dict]:
+    def get_job_results(self, job_id: str) -> dict | None:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
@@ -258,6 +257,33 @@ class GenerationService:
             "start_time": job.start_time,
             "end_time": job.end_time,
         }
+
+    def generate_rubric_traits(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model_provider: str = "google_genai",
+        model_name: str = "gemini-2.0-flash",
+        temperature: float = 0.1,
+    ) -> str:
+        """
+        Generate rubric traits using LLM.
+
+        This is a simple synchronous method for trait generation.
+        For now, we don't use the job queue system as trait generation is typically fast.
+        """
+        from karenina.llm.interface import call_model
+
+        # Generate response using call_model function
+        response = call_model(
+            model=model_name,
+            provider=model_provider,
+            message=user_prompt,
+            system_message=system_prompt,
+            temperature=temperature
+        )
+
+        return response.message
 
 
 # Global service instance

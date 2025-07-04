@@ -3,10 +3,10 @@
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional
 
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.benchmark.verifier import run_question_verification
+from karenina.schemas.rubric_class import Rubric, merge_rubrics
 
 
 class VerificationService:
@@ -14,19 +14,27 @@ class VerificationService:
 
     def __init__(self, max_workers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.jobs: Dict[str, VerificationJob] = {}
-        self.futures: Dict[str, any] = {}
+        self.jobs: dict[str, VerificationJob] = {}
+        self.futures: dict[str, any] = {}
         # Store all historical results keyed by job_id
-        self.historical_results: Dict[str, Dict[str, VerificationResult]] = {}
+        self.historical_results: dict[str, dict[str, VerificationResult]] = {}
 
     def start_verification(
         self,
-        finished_templates: List[FinishedTemplate],
+        finished_templates: list[FinishedTemplate],
         config: VerificationConfig,
-        question_ids: Optional[List[str]] = None,
-        run_name: Optional[str] = None,
+        question_ids: list[str] | None = None,
+        run_name: str | None = None,
     ) -> str:
         """Start a new verification job."""
+        # Validate rubric availability if rubric evaluation is enabled
+        if getattr(config, "rubric_enabled", False):
+            current_rubric = self._load_current_rubric()
+            if current_rubric is None:
+                raise ValueError(
+                    "Rubric evaluation is enabled but no rubric is configured. Please create a rubric first."
+                )
+
         job_id = str(uuid.uuid4())
 
         # Auto-generate run name if not provided
@@ -65,19 +73,19 @@ class VerificationService:
 
         return job_id
 
-    def get_job_status(self, job_id: str) -> Optional[Dict]:
+    def get_job_status(self, job_id: str) -> dict | None:
         """Get the status of a verification job."""
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
 
-    def get_job_results(self, job_id: str) -> Optional[Dict[str, VerificationResult]]:
+    def get_job_results(self, job_id: str) -> dict[str, VerificationResult] | None:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
             return job.results
         return None
 
-    def get_all_historical_results(self) -> Dict[str, VerificationResult]:
+    def get_all_historical_results(self) -> dict[str, VerificationResult]:
         """Get all historical results across all completed jobs."""
         all_results = {}
         for job_results in self.historical_results.values():
@@ -108,11 +116,36 @@ class VerificationService:
             if job_id in self.futures:
                 del self.futures[job_id]
 
-    def _run_verification(self, job: VerificationJob, templates: List[FinishedTemplate]):
+    def _load_current_rubric(self) -> Rubric | None:
+        """
+        Load the current rubric from the API.
+
+        Returns:
+            The current rubric if available, None otherwise
+        """
+        try:
+            # Import here to avoid circular imports
+            from ..api.rubric_handlers import current_rubric
+
+            return current_rubric
+        except Exception as e:
+            print(f"Warning: Failed to load rubric: {e}")
+            return None
+
+    def _run_verification(self, job: VerificationJob, templates: list[FinishedTemplate]):
         """Run verification for all templates in the job."""
         try:
             job.status = "running"
             job.start_time = time.time()
+
+            # Load global rubric if rubric evaluation is enabled
+            global_rubric = None
+            if getattr(job.config, "rubric_enabled", False):
+                global_rubric = self._load_current_rubric()
+                if global_rubric:
+                    print(f"Loaded global rubric with {len(global_rubric.traits)} traits for verification")
+                else:
+                    print("Warning: Rubric evaluation enabled but no global rubric found")
 
             for i, template in enumerate(templates):
                 if job.status == "cancelled":
@@ -124,12 +157,36 @@ class VerificationService:
                 )
 
                 try:
+                    # Prepare rubric for this question (merge global + question-specific)
+                    merged_rubric = None
+                    if getattr(job.config, "rubric_enabled", False):
+                        question_rubric = None
+                        if template.question_rubric:
+                            # Convert dict to Rubric object
+                            try:
+                                question_rubric = Rubric.model_validate(template.question_rubric)
+                            except Exception as e:
+                                print(f"Warning: Failed to parse question rubric for {template.question_id}: {e}")
+                        
+                        try:
+                            merged_rubric = merge_rubrics(global_rubric, question_rubric)
+                            if merged_rubric:
+                                total_traits = len(merged_rubric.traits)
+                                global_count = len(global_rubric.traits) if global_rubric else 0
+                                question_count = len(question_rubric.traits) if question_rubric else 0
+                                print(f"Question {template.question_id}: Using {total_traits} traits ({global_count} global + {question_count} question-specific)")
+                        except ValueError as e:
+                            print(f"Error merging rubrics for question {template.question_id}: {e}")
+                            # Fall back to global rubric only
+                            merged_rubric = global_rubric
+
                     # Run verification for this question (returns dict of results for all model combinations)
                     question_results = run_question_verification(
                         question_id=template.question_id,
                         question_text=template.question_text,
                         template_code=template.template_code,
                         config=job.config,
+                        rubric=merged_rubric,
                     )
 
                     # Process each model combination result
@@ -263,7 +320,7 @@ class VerificationService:
             job.error_message = str(e)
             job.end_time = time.time()
 
-    def get_progress(self, job_id: str) -> Optional[Dict]:
+    def get_progress(self, job_id: str) -> dict | None:
         """Get progress information for a job."""
         job = self.jobs.get(job_id)
         if not job:
