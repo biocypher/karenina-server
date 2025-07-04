@@ -1,5 +1,6 @@
 """Service for managing verification jobs with progress tracking."""
 
+import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -7,6 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.benchmark.verifier import run_question_verification
 from karenina.schemas.rubric_class import Rubric, merge_rubrics
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class VerificationService:
@@ -29,10 +33,11 @@ class VerificationService:
         """Start a new verification job."""
         # Validate rubric availability if rubric evaluation is enabled
         if getattr(config, "rubric_enabled", False):
-            current_rubric = self._load_current_rubric()
-            if current_rubric is None:
+            from ..services.rubric_service import rubric_service
+            
+            if not rubric_service.has_any_rubric(finished_templates):
                 raise ValueError(
-                    "Rubric evaluation is enabled but no rubric is configured. Please create a rubric first."
+                    "Rubric evaluation is enabled but no rubrics are configured. Please create a global rubric or include question-specific rubrics in your templates."
                 )
 
         job_id = str(uuid.uuid4())
@@ -118,18 +123,16 @@ class VerificationService:
 
     def _load_current_rubric(self) -> Rubric | None:
         """
-        Load the current rubric from the API.
+        Load the current rubric from the service.
 
         Returns:
             The current rubric if available, None otherwise
         """
         try:
-            # Import here to avoid circular imports
-            from ..api.rubric_handlers import current_rubric
-
-            return current_rubric
+            from ..services.rubric_service import rubric_service
+            return rubric_service.get_current_rubric()
         except Exception as e:
-            print(f"Warning: Failed to load rubric: {e}")
+            logger.error(f"Failed to load rubric: {e}")
             return None
 
     def _run_verification(self, job: VerificationJob, templates: list[FinishedTemplate]):
@@ -142,10 +145,6 @@ class VerificationService:
             global_rubric = None
             if getattr(job.config, "rubric_enabled", False):
                 global_rubric = self._load_current_rubric()
-                if global_rubric:
-                    print(f"Loaded global rubric with {len(global_rubric.traits)} traits for verification")
-                else:
-                    print("Warning: Rubric evaluation enabled but no global rubric found")
 
             for i, template in enumerate(templates):
                 if job.status == "cancelled":
@@ -166,17 +165,12 @@ class VerificationService:
                             try:
                                 question_rubric = Rubric.model_validate(template.question_rubric)
                             except Exception as e:
-                                print(f"Warning: Failed to parse question rubric for {template.question_id}: {e}")
+                                logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
                         
                         try:
                             merged_rubric = merge_rubrics(global_rubric, question_rubric)
-                            if merged_rubric:
-                                total_traits = len(merged_rubric.traits)
-                                global_count = len(global_rubric.traits) if global_rubric else 0
-                                question_count = len(question_rubric.traits) if question_rubric else 0
-                                print(f"Question {template.question_id}: Using {total_traits} traits ({global_count} global + {question_count} question-specific)")
                         except ValueError as e:
-                            print(f"Error merging rubrics for question {template.question_id}: {e}")
+                            logger.error(f"Error merging rubrics for question {template.question_id}: {e}")
                             # Fall back to global rubric only
                             merged_rubric = global_rubric
 
@@ -316,6 +310,7 @@ class VerificationService:
             self.historical_results[job.job_id] = job.results.copy()
 
         except Exception as e:
+            logger.error(f"Verification job failed: {e}")
             job.status = "failed"
             job.error_message = str(e)
             job.end_time = time.time()

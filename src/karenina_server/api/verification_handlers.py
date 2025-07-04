@@ -35,18 +35,21 @@ def register_verification_routes(app, verification_service):
             # Create config
             config = VerificationConfig(**config_data)
 
+            # Create finished templates (needed for rubric validation)
+            finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
+
             # Validate rubric availability if rubric evaluation is enabled
             if getattr(config, "rubric_enabled", False):
-                from .rubric_handlers import current_rubric
-
-                if current_rubric is None:
+                from ..services.rubric_service import rubric_service
+                
+                # Check for any available rubrics (global OR question-specific)
+                has_any_rubric = rubric_service.has_any_rubric(finished_templates)
+                
+                if not has_any_rubric:
                     raise HTTPException(
                         status_code=400,
-                        detail="Rubric evaluation is enabled but no rubric is configured. Please create a rubric first.",
+                        detail="Rubric evaluation is enabled but no rubrics are configured. Please create a global rubric or include question-specific rubrics in your templates.",
                     )
-
-            # Create finished templates
-            finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
 
             # Start verification
             job_id = verification_service.start_verification(

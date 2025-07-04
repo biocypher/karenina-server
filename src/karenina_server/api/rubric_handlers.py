@@ -10,12 +10,9 @@ from karenina.schemas.question_class import Question
 from pydantic import BaseModel
 
 from karenina_server.services.generation_service import GenerationService
+from karenina_server.services.rubric_service import rubric_service
 
 router = APIRouter()
-
-# Global rubric store (in-memory for now)
-# In a production system, this would be stored in a database
-current_rubric: Rubric | None = None
 
 
 class RubricTraitGenerationConfig(BaseModel):
@@ -103,8 +100,6 @@ async def create_or_update_rubric(rubric: Rubric):
 
     This endpoint stores the rubric that will be used for evaluation.
     """
-    global current_rubric
-
     try:
         # Validate rubric
         if not rubric.traits:
@@ -115,8 +110,8 @@ async def create_or_update_rubric(rubric: Rubric):
         if len(trait_names) != len(set(trait_names)):
             raise HTTPException(status_code=400, detail="Trait names must be unique")
 
-        # Store the rubric
-        current_rubric = rubric
+        # Store the rubric using the service
+        rubric_service.set_current_rubric(rubric)
 
         return {"message": "Rubric saved successfully"}
 
@@ -134,7 +129,7 @@ async def get_current_rubric():
     Returns the rubric that is currently configured for evaluation,
     or None if no rubric is set.
     """
-    return current_rubric
+    return rubric_service.get_current_rubric()
 
 
 @router.delete("/rubric", response_model=dict[str, str])
@@ -144,8 +139,7 @@ async def delete_current_rubric():
 
     This removes the currently configured rubric.
     """
-    global current_rubric
-    current_rubric = None
+    rubric_service.clear_rubric()
     return {"message": "Rubric deleted successfully"}
 
 
