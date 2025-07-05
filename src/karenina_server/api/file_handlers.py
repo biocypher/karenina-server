@@ -83,7 +83,7 @@ all_questions = [
 def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsRequest: Any, ExtractQuestionsResponse: Any) -> None:
     """Register file-related routes."""
 
-    @app.post("/api/upload-file")
+    @app.post("/api/upload-file")  # type: ignore[misc]
     async def upload_file_endpoint(file: UploadFile = File(...)) -> dict[str, Any]:
         """Upload a file for question extraction."""
         if not EXTRACTOR_AVAILABLE:
@@ -118,7 +118,7 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}") from e
 
-    @app.post("/api/preview-file", response_model=FilePreviewResponse)
+    @app.post("/api/preview-file", response_model=FilePreviewResponse)  # type: ignore[misc]
     async def preview_file_endpoint(file_id: str = Form(...), sheet_name: str | None = Form(None)) -> FilePreviewResponse:
         """Get a preview of the uploaded file."""
         if not EXTRACTOR_AVAILABLE:
@@ -135,7 +135,7 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
         except Exception as e:
             return FilePreviewResponse(success=False, error=f"Error previewing file: {e!s}")
 
-    @app.post("/api/extract-questions", response_model=ExtractQuestionsResponse)
+    @app.post("/api/extract-questions", response_model=ExtractQuestionsResponse)  # type: ignore[misc]
     async def extract_questions_endpoint(request: ExtractQuestionsRequest) -> ExtractQuestionsResponse:
         """Extract questions from the uploaded file."""
         if not EXTRACTOR_AVAILABLE:
@@ -166,7 +166,7 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
         except Exception as e:
             return ExtractQuestionsResponse(success=False, error=f"Error extracting questions: {e!s}")
 
-    @app.post("/api/export-questions-python")
+    @app.post("/api/export-questions-python")  # type: ignore[misc]
     async def export_questions_python_endpoint(request: dict[str, Any]) -> FileResponse:
         """Export questions as a Python file."""
         try:
@@ -197,7 +197,7 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error exporting Python file: {e!s}") from e
 
-    @app.delete("/api/uploaded-files/{file_id}")
+    @app.delete("/api/uploaded-files/{file_id}")  # type: ignore[misc]
     async def delete_uploaded_file_endpoint(file_id: str) -> dict[str, str]:
         """Delete an uploaded file."""
         if file_id not in uploaded_files:
@@ -222,7 +222,7 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting file: {e!s}") from e
 
-    @app.post("/api/upload-manual-traces")
+    @app.post("/api/upload-manual-traces")  # type: ignore[misc]
     async def upload_manual_traces_endpoint(file: UploadFile = File(...)) -> dict[str, Any]:
         """Upload manual traces JSON file."""
         if not MANUAL_TRACES_AVAILABLE:
@@ -256,7 +256,7 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error uploading manual traces: {e}") from e
 
-    @app.get("/api/manual-traces/status")
+    @app.get("/api/manual-traces/status")  # type: ignore[misc]
     async def get_manual_traces_status() -> dict[str, Any]:
         """Get the status of loaded manual traces."""
         if not MANUAL_TRACES_AVAILABLE:

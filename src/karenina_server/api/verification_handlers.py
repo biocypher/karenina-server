@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 def register_verification_routes(app: Any, verification_service: Any) -> None:
     """Register verification-related routes."""
 
-    @app.get("/api/finished-templates")
+    @app.get("/api/finished-templates")  # type: ignore[misc]
     async def get_finished_templates_endpoint() -> dict[str, Any]:
         """Get list of finished templates for verification."""
         try:
@@ -21,7 +21,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
 
-    @app.post("/api/start-verification")
+    @app.post("/api/start-verification")  # type: ignore[misc]
     async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Start verification job."""
         try:
@@ -71,7 +71,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
-    @app.get("/api/verification-progress/{job_id}")
+    @app.get("/api/verification-progress/{job_id}")  # type: ignore[misc]
     async def get_verification_progress(job_id: str) -> dict[str, Any]:
         """Get verification progress."""
         try:
@@ -79,14 +79,14 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             if not progress:
                 raise HTTPException(status_code=404, detail="Job not found")
 
-            return progress
+            return progress  # type: ignore[no-any-return]
 
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
 
-    @app.get("/api/verification-results/{job_id}")
+    @app.get("/api/verification-results/{job_id}")  # type: ignore[misc]
     async def get_verification_results(job_id: str) -> dict[str, Any]:
         """Get verification results."""
         try:
@@ -101,7 +101,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}") from e
 
-    @app.get("/api/all-verification-results")
+    @app.get("/api/all-verification-results")  # type: ignore[misc]
     async def get_all_verification_results() -> dict[str, Any]:
         """Get all historical verification results across all jobs."""
         try:
@@ -111,7 +111,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
 
-    @app.post("/api/cancel-verification/{job_id}")
+    @app.post("/api/cancel-verification/{job_id}")  # type: ignore[misc]
     async def cancel_verification_endpoint(job_id: str) -> dict[str, Any]:
         """Cancel verification job."""
         try:
@@ -126,7 +126,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
 
-    @app.get("/api/export-verification/{job_id}")
+    @app.get("/api/export-verification/{job_id}")  # type: ignore[misc]
     async def export_verification_endpoint(job_id: str, fmt: str = "json") -> FileResponse:
         """Export verification results."""
         try:

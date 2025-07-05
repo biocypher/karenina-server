@@ -4,17 +4,24 @@ import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+
+# Type alias for config - using TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from karenina.answers.generator import generate_answer_template
 from karenina.utils.code_parser import extract_and_combine_codeblocks
+
+if TYPE_CHECKING:
+    from karenina_server.server import TemplateGenerationConfig
+
+ConfigType: TypeAlias = dict[str, Any]
 
 
 class TemplateGenerationJob:
     """Represents a template generation job."""
 
     def __init__(
-        self, job_id: str, questions_data: dict[str, Any], config: dict[str, Any], total_questions: int, custom_system_prompt: str | None = None
+        self, job_id: str, questions_data: dict[str, Any], config: ConfigType, total_questions: int, custom_system_prompt: str | None = None
     ):
         self.job_id = job_id
         self.questions_data = questions_data
@@ -145,19 +152,20 @@ class GenerationService:
             if hasattr(config, "model_name"):
                 # New config format (Pydantic model)
                 model_name = config.model_name
-                model_provider = config.model_provider
-                temperature = config.temperature
+                model_provider = config.model_provider  # type: ignore[attr-defined]
+                temperature = config.temperature  # type: ignore[attr-defined]
                 interface = getattr(config, "interface", "langchain")
             else:
                 # Old config format (dict)
-                model_name = config.get("model_name", config.get("model", "gemini-2.0-flash"))
-                interface = config.get("interface", "langchain")
+                config_dict = config
+                model_name = config_dict.get("model_name", config_dict.get("model", "gemini-2.0-flash"))
+                interface = config_dict.get("interface", "langchain")
                 # Only set default provider for langchain interface
                 if interface == "langchain":
-                    model_provider = config.get("model_provider", "google_genai")
+                    model_provider = config_dict.get("model_provider", "google_genai")
                 else:
-                    model_provider = config.get("model_provider", "")
-                temperature = config.get("temperature", 0.1)
+                    model_provider = config_dict.get("model_provider", "")
+                temperature = config_dict.get("temperature", 0.1)
 
             question_ids = list(job.questions_data.keys())
 
