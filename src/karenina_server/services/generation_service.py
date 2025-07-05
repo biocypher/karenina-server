@@ -12,7 +12,7 @@ from karenina.answers.generator import generate_answer_template
 from karenina.utils.code_parser import extract_and_combine_codeblocks
 
 if TYPE_CHECKING:
-    from karenina_server.server import TemplateGenerationConfig
+    pass
 
 ConfigType: TypeAlias = dict[str, Any]
 
@@ -21,7 +21,12 @@ class TemplateGenerationJob:
     """Represents a template generation job."""
 
     def __init__(
-        self, job_id: str, questions_data: dict[str, Any], config: ConfigType, total_questions: int, custom_system_prompt: str | None = None
+        self,
+        job_id: str,
+        questions_data: dict[str, Any],
+        config: ConfigType,
+        total_questions: int,
+        custom_system_prompt: str | None = None,
     ):
         self.job_id = job_id
         self.questions_data = questions_data
@@ -84,7 +89,9 @@ class GenerationService:
         self.jobs: dict[str, TemplateGenerationJob] = {}
         self.futures: dict[str, Any] = {}  # Add missing futures dict
 
-    def start_generation(self, questions_data: dict[str, Any], config: dict[str, Any], custom_system_prompt: str | None = None) -> str:
+    def start_generation(
+        self, questions_data: dict[str, Any], config: dict[str, Any], custom_system_prompt: str | None = None
+    ) -> str:
         """Start a new template generation job."""
         job_id = str(uuid.uuid4())
 
@@ -296,28 +303,27 @@ class GenerationService:
         if interface == "openrouter":
             # Use init_chat_model_unified for OpenRouter
             from karenina.llm.interface import call_model, init_chat_model_unified
+
             chat_model = init_chat_model_unified(
                 provider="",  # Empty provider for OpenRouter
                 model=model_name,
                 temperature=temperature,
-                interface=interface
+                interface=interface,
             )
             # Create messages for chat model
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
+            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
             response = chat_model.invoke(messages)
             return str(response.content)
         else:
             # Use call_model for langchain interface
             from karenina.llm.interface import call_model
+
             response = call_model(
                 model=model_name,
                 provider=model_provider,
                 message=user_prompt,
                 system_message=system_prompt,
-                temperature=temperature
+                temperature=temperature,
             )
             return str(response.message)
 

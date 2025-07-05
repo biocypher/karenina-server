@@ -1,13 +1,16 @@
-.PHONY: help install dev test lint format type-check clean build serve version release release-dry
+.PHONY: help install dev test test-cov test-changed lint format type-check dead-code clean build serve version release release-dry
 
 help:
 	@echo "Available commands:"
 	@echo "  make install         Install the package"
 	@echo "  make dev             Install the package in development mode with all extras"
 	@echo "  make test            Run tests"
+	@echo "  make test-cov        Run tests with coverage"
+	@echo "  make test-changed    Run only tests affected by changes (testmon)"
 	@echo "  make lint            Run linting"
 	@echo "  make format          Format code"
 	@echo "  make type-check      Run type checking"
+	@echo "  make dead-code       Find dead code with vulture"
 	@echo "  make serve           Start the server in development mode"
 	@echo "  make clean           Clean build artifacts"
 	@echo "  make build           Build distribution packages"
@@ -23,19 +26,25 @@ dev:
 	pre-commit install
 
 test:
-	pytest -v
+	uv run pytest -v
 
 test-cov:
-	pytest --cov=karenina_server --cov-report=html --cov-report=term
+	uv run pytest --cov=karenina_server --cov-report=html --cov-report=term
+
+test-changed:
+	uv run pytest --testmon -v
 
 lint:
-	ruff check src/karenina_server tests
+	uv run ruff check src/karenina_server tests
 
 format:
-	ruff format src/karenina_server tests
+	uv run ruff format src/karenina_server tests
 
 type-check:
-	mypy src/karenina_server
+	uv run mypy src/karenina_server
+
+dead-code:
+	uv run vulture src/karenina_server
 
 serve:
 	karenina-server serve --dev
@@ -59,7 +68,7 @@ build:
 	uv pip install build
 	python -m build
 
-check: lint type-check test
+check: lint type-check dead-code test
 
 version:
 	@echo "Analyzing commits for next version..."

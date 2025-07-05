@@ -131,6 +131,7 @@ class VerificationService:
         """
         try:
             from ..services.rubric_service import rubric_service
+
             return rubric_service.get_current_rubric()
         except Exception as e:
             logger.error(f"Failed to load rubric: {e}")

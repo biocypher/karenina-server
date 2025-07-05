@@ -80,7 +80,9 @@ all_questions = [
     return content
 
 
-def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsRequest: Any, ExtractQuestionsResponse: Any) -> None:
+def register_file_routes(
+    app: Any, FilePreviewResponse: Any, ExtractQuestionsRequest: Any, ExtractQuestionsResponse: Any
+) -> None:
     """Register file-related routes."""
 
     @app.post("/api/upload-file")  # type: ignore[misc]
@@ -119,7 +121,9 @@ def register_file_routes(app: Any, FilePreviewResponse: Any, ExtractQuestionsReq
             raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}") from e
 
     @app.post("/api/preview-file", response_model=FilePreviewResponse)  # type: ignore[misc]
-    async def preview_file_endpoint(file_id: str = Form(...), sheet_name: str | None = Form(None)) -> FilePreviewResponse:
+    async def preview_file_endpoint(
+        file_id: str = Form(...), sheet_name: str | None = Form(None)
+    ) -> FilePreviewResponse:
         """Get a preview of the uploaded file."""
         if not EXTRACTOR_AVAILABLE:
             raise HTTPException(status_code=500, detail="Question extractor not available")

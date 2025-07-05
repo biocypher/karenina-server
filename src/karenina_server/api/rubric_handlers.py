@@ -56,7 +56,7 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest) -> Rubri
                 id=q_id,
                 question=q_data.get("question", "Unknown question"),
                 raw_answer=q_data.get("raw_answer", "Unknown answer"),
-                tags=q_data.get("tags", [])
+                tags=q_data.get("tags", []),
             )
             questions.append(question)
 
@@ -237,19 +237,19 @@ I have analyzed the question-answer and ....
 
 def _build_rubric_generation_prompt(questions: list[Question], user_suggestions: list[str] | None) -> str:
     """Build the user prompt for rubric trait generation."""
-    user_prompt = '''<question_answer_pairs>\n'''
+    user_prompt = """<question_answer_pairs>\n"""
 
     # Add question context
     for i, question in enumerate(questions, 1):
         user_prompt += f"{i}. {question.question}: {question.raw_answer}\n"
 
-    user_prompt += '''</question_answer_pairs>'''
+    user_prompt += """</question_answer_pairs>"""
 
     # Add user suggestions if provided
-    user_prompt += '''\n\n<user_traits_suggestions>'''
+    user_prompt += """\n\n<user_traits_suggestions>"""
     if user_suggestions:
         user_prompt += f"{', '.join(user_suggestions)}"
-    user_prompt += '''\n</user_traits_suggestions>'''
+    user_prompt += """\n</user_traits_suggestions>"""
 
     return user_prompt
 

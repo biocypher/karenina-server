@@ -50,7 +50,7 @@ class RubricService:
         # Check for question-specific rubrics
         if finished_templates:
             for template in finished_templates:
-                if hasattr(template, 'question_rubric') and template.question_rubric:
+                if hasattr(template, "question_rubric") and template.question_rubric:
                     return True
 
         return False

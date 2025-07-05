@@ -26,7 +26,7 @@ except ImportError:
 
 # Import LLM functionality from the karenina package
 try:
-    import karenina.llm  # Test if LLM module is available
+    import karenina.llm  # noqa: F401 - Test if LLM module is available
     from karenina.llm.interface import LANGCHAIN_AVAILABLE
 
     LLM_AVAILABLE = True

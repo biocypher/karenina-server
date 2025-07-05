@@ -40,9 +40,11 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
+    "pytest-testmon>=2.1.3",    # For smart testing
     "httpx>=0.24.0",            # For testing FastAPI
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "vulture>=2.0.0",           # For dead code detection
     "pre-commit>=3.0.0",
 ]
 
@@ -128,6 +130,14 @@ known-first-party = ["karenina_server"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG001"]  # Unused function argument
 
+[tool.vulture]
+# Configure vulture for dead code detection
+paths = ["src", "tests"]
+min_confidence = 80
+ignore_decorators = ["@pytest.fixture", "@property", "@abstractmethod"]
+ignore_names = ["test_*", "setUp", "tearDown"]
+make_whitelist = true
+
 [tool.uv.sources]
 karenina = { path = "../karenina", editable = true }
 
@@ -135,6 +145,7 @@ karenina = { path = "../karenina", editable = true }
 dev = [
     "build>=1.2.2.post1",
     "deptree>=0.0.12",
+    "pytest-testmon>=2.1.3",
     "python-semantic-release>=10.1.0",
     "twine>=6.1.0",
     "vulture>=2.14",
