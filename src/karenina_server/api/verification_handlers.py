@@ -2,16 +2,17 @@
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 
-def register_verification_routes(app, verification_service):
+def register_verification_routes(app: Any, verification_service: Any) -> None:
     """Register verification-related routes."""
 
     @app.get("/api/finished-templates")
-    async def get_finished_templates_endpoint():
+    async def get_finished_templates_endpoint() -> dict[str, Any]:
         """Get list of finished templates for verification."""
         try:
             # This is a placeholder - in a real implementation, you'd get this from your data store
@@ -21,7 +22,7 @@ def register_verification_routes(app, verification_service):
             raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
 
     @app.post("/api/start-verification")
-    async def start_verification_endpoint(request: dict):
+    async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Start verification job."""
         try:
             from karenina.benchmark.models import FinishedTemplate, VerificationConfig
@@ -71,7 +72,7 @@ def register_verification_routes(app, verification_service):
             raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
     @app.get("/api/verification-progress/{job_id}")
-    async def get_verification_progress(job_id: str):
+    async def get_verification_progress(job_id: str) -> dict[str, Any]:
         """Get verification progress."""
         try:
             progress = verification_service.get_progress(job_id)
@@ -86,7 +87,7 @@ def register_verification_routes(app, verification_service):
             raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
 
     @app.get("/api/verification-results/{job_id}")
-    async def get_verification_results(job_id: str):
+    async def get_verification_results(job_id: str) -> dict[str, Any]:
         """Get verification results."""
         try:
             results = verification_service.get_job_results(job_id)
@@ -101,7 +102,7 @@ def register_verification_routes(app, verification_service):
             raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}") from e
 
     @app.get("/api/all-verification-results")
-    async def get_all_verification_results():
+    async def get_all_verification_results() -> dict[str, Any]:
         """Get all historical verification results across all jobs."""
         try:
             results = verification_service.get_all_historical_results()
@@ -111,7 +112,7 @@ def register_verification_routes(app, verification_service):
             raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
 
     @app.post("/api/cancel-verification/{job_id}")
-    async def cancel_verification_endpoint(job_id: str):
+    async def cancel_verification_endpoint(job_id: str) -> dict[str, Any]:
         """Cancel verification job."""
         try:
             success = verification_service.cancel_job(job_id)
@@ -126,7 +127,7 @@ def register_verification_routes(app, verification_service):
             raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
 
     @app.get("/api/export-verification/{job_id}")
-    async def export_verification_endpoint(job_id: str, fmt: str = "json"):
+    async def export_verification_endpoint(job_id: str, fmt: str = "json") -> FileResponse:
         """Export verification results."""
         try:
             from karenina.benchmark.exporter import (

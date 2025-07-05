@@ -1,5 +1,7 @@
 """Chat and session API handlers."""
 
+from typing import Any
+
 from fastapi import HTTPException
 
 try:
@@ -12,11 +14,11 @@ except ImportError:
     LANGCHAIN_AVAILABLE = False
 
 
-def register_chat_routes(app):
+def register_chat_routes(app: Any) -> None:
     """Register chat-related routes."""
 
     @app.post("/api/chat", response_model=ChatResponse)
-    async def chat_endpoint(request: ChatRequest):
+    async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         """Chat with a language model."""
         try:
             return call_model(
@@ -37,12 +39,12 @@ def register_chat_routes(app):
                 raise HTTPException(status_code=500, detail=f"Error calling model: {e!s}") from e
 
     @app.get("/api/sessions")
-    async def list_sessions_endpoint():
+    async def list_sessions_endpoint() -> dict[str, Any]:
         """List all active chat sessions."""
         return {"sessions": list_sessions()}
 
     @app.get("/api/sessions/{session_id}")
-    async def get_session_endpoint(session_id: str):
+    async def get_session_endpoint(session_id: str) -> dict[str, Any]:
         """Get details of a specific chat session."""
         session = get_session(session_id)
         if session is None:
@@ -66,7 +68,7 @@ def register_chat_routes(app):
         }
 
     @app.delete("/api/sessions/{session_id}")
-    async def delete_session_endpoint(session_id: str):
+    async def delete_session_endpoint(session_id: str) -> dict[str, str]:
         """Delete a chat session."""
         if not delete_session(session_id):
             raise HTTPException(status_code=404, detail="Session not found")
@@ -74,12 +76,12 @@ def register_chat_routes(app):
         return {"message": f"Session {session_id} deleted successfully"}
 
     @app.get("/api/health")
-    async def health_check():
+    async def health_check() -> dict[str, Any]:
         """Health check endpoint."""
         return {"status": "healthy", "langchain_available": LANGCHAIN_AVAILABLE, "active_sessions": len(chat_sessions)}
 
     @app.get("/api/timestamp")
-    async def get_server_timestamp():
+    async def get_server_timestamp() -> dict[str, str]:
         """Get current server timestamp in ISO format."""
         from datetime import datetime
 

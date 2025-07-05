@@ -113,23 +113,23 @@ verification_service = None
 class KareninaHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Custom HTTP request handler for serving the Karenina webapp."""
 
-    def __init__(self, *args, webapp_dir: Path, **kwargs):
+    def __init__(self, *args: Any, webapp_dir: Path, **kwargs: Any) -> None:
         self.webapp_dir = webapp_dir
         super().__init__(*args, directory=str(webapp_dir), **kwargs)
 
-    def end_headers(self):
+    def end_headers(self) -> None:
         """Add CORS headers and other necessary headers."""
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         super().end_headers()
 
-    def do_OPTIONS(self):
+    def do_OPTIONS(self) -> None:
         """Handle OPTIONS requests for CORS."""
         self.send_response(200)
         self.end_headers()
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         """Handle GET requests with SPA routing support."""
         # For SPA routing, serve index.html for non-asset requests
         if (
@@ -270,13 +270,13 @@ def start_production_server(dist_dir: Path, host: str, port: int) -> None:
     print(f"🌐 Starting production server at http://{host}:{port}")
 
     # Create a custom handler with the dist directory
-    def handler_factory(*args, **kwargs):
+    def handler_factory(*args: Any, **kwargs: Any) -> KareninaHTTPRequestHandler:
         return KareninaHTTPRequestHandler(*args, webapp_dir=dist_dir, **kwargs)
 
     try:
         with socketserver.TCPServer((host, port), handler_factory) as httpd:
             # Open browser after a short delay
-            def open_browser():
+            def open_browser() -> None:
                 time.sleep(1)
                 webbrowser.open(f"http://{host}:{port}")
 
@@ -339,7 +339,7 @@ def start_server(
 # call_model function has been moved to the llm submodule
 
 
-def create_fastapi_app(webapp_dir: Path):
+def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     """Create FastAPI application with API routes and static file serving."""
     if not FASTAPI_AVAILABLE:
         raise RuntimeError("FastAPI is not available. Please install FastAPI dependencies.")
@@ -378,7 +378,7 @@ def create_fastapi_app(webapp_dir: Path):
         app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="assets")
 
         @app.get("/{full_path:path}")
-        async def serve_webapp(full_path: str):
+        async def serve_webapp(full_path: str) -> FileResponse:
             """Serve the webapp with SPA routing support."""
             # Serve specific files if they exist
             file_path = dist_dir / full_path
