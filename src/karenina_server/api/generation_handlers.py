@@ -3,7 +3,7 @@
 from fastapi import HTTPException
 
 try:
-    from karenina.llm import ChatRequest, ChatResponse, call_model, delete_session, get_session, list_sessions
+    import karenina.llm  # noqa: F401 - Test if LLM module is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -40,7 +40,7 @@ def register_generation_routes(
             )
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to start generation: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Failed to start generation: {e!s}") from e
 
     @app.get("/api/generation-progress/{job_id}")
     async def get_generation_progress(job_id: str):
@@ -75,7 +75,7 @@ def register_generation_routes(
             raise
         except Exception as e:
             print(f"Error getting generation progress: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     @app.post("/api/cancel-generation/{job_id}")
     async def cancel_generation_endpoint(job_id: str):
@@ -92,4 +92,4 @@ def register_generation_routes(
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e

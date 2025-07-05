@@ -60,7 +60,6 @@ packages = ["src/karenina_server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
@@ -103,6 +102,8 @@ ignore_missing_imports = true
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -121,10 +122,10 @@ ignore = [
     "W191",  # indentation contains tabs
 ]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["karenina_server"]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG001"]  # Unused function argument
 
 [tool.uv.sources]
@@ -136,6 +137,7 @@ dev = [
     "deptree>=0.0.12",
     "python-semantic-release>=10.1.0",
     "twine>=6.1.0",
+    "vulture>=2.14",
 ]
 
 [tool.semantic_release]

@@ -30,11 +30,11 @@ def register_chat_routes(app):
         except Exception as e:
             # Convert LLM exceptions to HTTP exceptions
             if isinstance(e, LLMNotAvailableError):
-                raise HTTPException(status_code=500, detail=str(e))
+                raise HTTPException(status_code=500, detail=str(e)) from e
             elif isinstance(e, SessionError):
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
             else:
-                raise HTTPException(status_code=500, detail=f"Error calling model: {e!s}")
+                raise HTTPException(status_code=500, detail=f"Error calling model: {e!s}") from e
 
     @app.get("/api/sessions")
     async def list_sessions_endpoint():

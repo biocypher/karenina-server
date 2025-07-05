@@ -18,7 +18,7 @@ def register_verification_routes(app, verification_service):
             # For now, return empty list since we don't have access to the checkpoint data here
             return {"finished_templates": []}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
 
     @app.post("/api/start-verification")
     async def start_verification_endpoint(request: dict):
@@ -41,10 +41,10 @@ def register_verification_routes(app, verification_service):
             # Validate rubric availability if rubric evaluation is enabled
             if getattr(config, "rubric_enabled", False):
                 from ..services.rubric_service import rubric_service
-                
+
                 # Check for any available rubrics (global OR question-specific)
                 has_any_rubric = rubric_service.has_any_rubric(finished_templates)
-                
+
                 if not has_any_rubric:
                     raise HTTPException(
                         status_code=400,
@@ -68,7 +68,7 @@ def register_verification_routes(app, verification_service):
             }
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
     @app.get("/api/verification-progress/{job_id}")
     async def get_verification_progress(job_id: str):
@@ -83,7 +83,7 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
 
     @app.get("/api/verification-results/{job_id}")
     async def get_verification_results(job_id: str):
@@ -98,7 +98,7 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}") from e
 
     @app.get("/api/all-verification-results")
     async def get_all_verification_results():
@@ -108,7 +108,7 @@ def register_verification_routes(app, verification_service):
             return {"results": results}
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
 
     @app.post("/api/cancel-verification/{job_id}")
     async def cancel_verification_endpoint(job_id: str):
@@ -123,7 +123,7 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
 
     @app.get("/api/export-verification/{job_id}")
     async def export_verification_endpoint(job_id: str, fmt: str = "json"):
@@ -167,4 +167,4 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}") from e

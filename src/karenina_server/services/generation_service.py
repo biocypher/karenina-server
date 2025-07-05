@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from karenina.answers.generator import generate_answer_template
 from karenina.utils.code_parser import extract_and_combine_codeblocks
@@ -13,7 +14,7 @@ class TemplateGenerationJob:
     """Represents a template generation job."""
 
     def __init__(
-        self, job_id: str, questions_data: dict, config: dict, total_questions: int, custom_system_prompt: str = None
+        self, job_id: str, questions_data: dict[str, Any], config: dict[str, Any], total_questions: int, custom_system_prompt: str | None = None
     ):
         self.job_id = job_id
         self.questions_data = questions_data
@@ -23,9 +24,9 @@ class TemplateGenerationJob:
 
         # Status tracking
         self.status = "pending"  # pending, running, completed, failed, cancelled
-        self.start_time = None
-        self.end_time = None
-        self.error_message = None
+        self.start_time: float | None = None
+        self.end_time: float | None = None
+        self.error_message: str | None = None
 
         # Progress tracking
         self.processed_count = 0
@@ -33,14 +34,14 @@ class TemplateGenerationJob:
         self.failed_count = 0
         self.percentage = 0.0
         self.current_question = ""
-        self.estimated_time_remaining = None
+        self.estimated_time_remaining: float | None = None
 
         # Results
-        self.results = {}
-        self.result = None
+        self.results: dict[str, Any] = {}
+        self.result: dict[str, Any] | None = None
         self.cancelled = False
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         """Convert job to dictionary for API response."""
         return {
             "job_id": self.job_id,
@@ -54,9 +55,12 @@ class TemplateGenerationJob:
             "end_time": self.end_time,
         }
 
-    def _estimate_remaining_time(self):
+    def _estimate_remaining_time(self) -> int | None:
         """Estimate remaining time based on current progress."""
         if self.processed_count == 0:
+            return None
+
+        if self.start_time is None:
             return None
 
         elapsed = time.time() - self.start_time
@@ -71,9 +75,9 @@ class GenerationService:
     def __init__(self, max_workers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.jobs: dict[str, TemplateGenerationJob] = {}
-        self.futures: dict[str, any] = {}  # Add missing futures dict
+        self.futures: dict[str, Any] = {}  # Add missing futures dict
 
-    def start_generation(self, questions_data: dict, config: dict, custom_system_prompt: str = None) -> str:
+    def start_generation(self, questions_data: dict[str, Any], config: dict[str, Any], custom_system_prompt: str | None = None) -> str:
         """Start a new template generation job."""
         job_id = str(uuid.uuid4())
 
@@ -94,7 +98,7 @@ class GenerationService:
 
         return job_id
 
-    def get_job_status(self, job_id: str) -> dict | None:
+    def get_job_status(self, job_id: str) -> dict[str, Any] | None:
         """Get the status of a generation job."""
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
@@ -108,19 +112,21 @@ class GenerationService:
             return True
         return False
 
-    def get_job_results(self, job_id: str) -> dict | None:
+    def get_job_results(self, job_id: str) -> dict[str, Any] | None:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
             return job.results
         return None
 
-    def cleanup_old_jobs(self, max_age_hours: int = 24):
+    def cleanup_old_jobs(self, max_age_hours: int = 24) -> None:
         """Clean up old jobs to prevent memory leaks."""
         current_time = time.time()
-        jobs_to_remove = []
+        jobs_to_remove: list[str] = []
 
         for job_id, job in self.jobs.items():
+            if job.start_time is None:
+                continue
             age_hours = (current_time - job.start_time) / 3600
             if age_hours > max_age_hours:
                 jobs_to_remove.append(job_id)
@@ -128,7 +134,7 @@ class GenerationService:
         for job_id in jobs_to_remove:
             del self.jobs[job_id]
 
-    def _generate_templates(self, job: TemplateGenerationJob):
+    def _generate_templates(self, job: TemplateGenerationJob) -> None:
         """Generate templates for all questions in the job."""
         try:
             job.status = "running"
@@ -155,7 +161,7 @@ class GenerationService:
 
             question_ids = list(job.questions_data.keys())
 
-            for i, question_id in enumerate(question_ids):
+            for _i, question_id in enumerate(question_ids):
                 if job.cancelled:
                     job.status = "cancelled"
                     return
@@ -208,11 +214,12 @@ class GenerationService:
                     job.percentage = (job.processed_count / job.total_questions) * 100
 
                     # Calculate time estimates
-                    elapsed_time = time.time() - job.start_time
-                    if job.processed_count > 0:
-                        avg_time_per_question = elapsed_time / job.processed_count
-                        remaining_questions = job.total_questions - job.processed_count
-                        job.estimated_time_remaining = avg_time_per_question * remaining_questions
+                    if job.start_time is not None:
+                        elapsed_time = time.time() - job.start_time
+                        if job.processed_count > 0:
+                            avg_time_per_question = elapsed_time / job.processed_count
+                            remaining_questions = job.total_questions - job.processed_count
+                            job.estimated_time_remaining = avg_time_per_question * remaining_questions
 
                 except Exception as e:
                     job.results[question_id] = {"success": False, "error": str(e), "template_code": ""}
@@ -226,7 +233,7 @@ class GenerationService:
             job.percentage = 100.0
 
             # Create final result
-            total_time = job.end_time - job.start_time
+            total_time = (job.end_time or 0) - (job.start_time or 0)
             job.result = {
                 "templates": job.results,
                 "total_templates": job.total_questions,
@@ -241,7 +248,7 @@ class GenerationService:
             job.error_message = str(e)
             job.end_time = time.time()
 
-    def get_progress(self, job_id: str) -> dict:
+    def get_progress(self, job_id: str) -> dict[str, Any] | None:
         """Get progress information for a job."""
         job = self.jobs.get(job_id)
         if not job:
@@ -293,7 +300,7 @@ class GenerationService:
                 {"role": "user", "content": user_prompt}
             ]
             response = chat_model.invoke(messages)
-            return response.content
+            return str(response.content)
         else:
             # Use call_model for langchain interface
             from karenina.llm.interface import call_model
@@ -304,9 +311,7 @@ class GenerationService:
                 system_message=system_prompt,
                 temperature=temperature
             )
-            return response.message
-
-        return response.message
+            return str(response.message)
 
 
 # Global service instance

@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.benchmark.verifier import run_question_verification
@@ -19,7 +20,7 @@ class VerificationService:
     def __init__(self, max_workers: int = 2):
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.jobs: dict[str, VerificationJob] = {}
-        self.futures: dict[str, any] = {}
+        self.futures: dict[str, Any] = {}
         # Store all historical results keyed by job_id
         self.historical_results: dict[str, dict[str, VerificationResult]] = {}
 
@@ -34,7 +35,7 @@ class VerificationService:
         # Validate rubric availability if rubric evaluation is enabled
         if getattr(config, "rubric_enabled", False):
             from ..services.rubric_service import rubric_service
-            
+
             if not rubric_service.has_any_rubric(finished_templates):
                 raise ValueError(
                     "Rubric evaluation is enabled but no rubrics are configured. Please create a global rubric or include question-specific rubrics in your templates."
@@ -78,7 +79,7 @@ class VerificationService:
 
         return job_id
 
-    def get_job_status(self, job_id: str) -> dict | None:
+    def get_job_status(self, job_id: str) -> dict[str, Any] | None:
         """Get the status of a verification job."""
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
@@ -87,7 +88,7 @@ class VerificationService:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
-            return job.results
+            return job.results  # type: ignore[no-any-return]
         return None
 
     def get_all_historical_results(self) -> dict[str, VerificationResult]:
@@ -105,7 +106,7 @@ class VerificationService:
             return True
         return False
 
-    def cleanup_old_jobs(self, max_age_hours: int = 24):
+    def cleanup_old_jobs(self, max_age_hours: int = 24) -> None:
         """Clean up old jobs to prevent memory leaks."""
         current_time = time.time()
         jobs_to_remove = []
@@ -135,7 +136,7 @@ class VerificationService:
             logger.error(f"Failed to load rubric: {e}")
             return None
 
-    def _run_verification(self, job: VerificationJob, templates: list[FinishedTemplate]):
+    def _run_verification(self, job: VerificationJob, templates: list[FinishedTemplate]) -> None:
         """Run verification for all templates in the job."""
         try:
             job.status = "running"
@@ -146,7 +147,7 @@ class VerificationService:
             if getattr(job.config, "rubric_enabled", False):
                 global_rubric = self._load_current_rubric()
 
-            for i, template in enumerate(templates):
+            for _i, template in enumerate(templates):
                 if job.status == "cancelled":
                     return
 
@@ -166,7 +167,7 @@ class VerificationService:
                                 question_rubric = Rubric.model_validate(template.question_rubric)
                             except Exception as e:
                                 logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
-                        
+
                         try:
                             merged_rubric = merge_rubrics(global_rubric, question_rubric)
                         except ValueError as e:
@@ -315,7 +316,7 @@ class VerificationService:
             job.error_message = str(e)
             job.end_time = time.time()
 
-    def get_progress(self, job_id: str) -> dict | None:
+    def get_progress(self, job_id: str) -> dict[str, Any] | None:
         """Get progress information for a job."""
         job = self.jobs.get(job_id)
         if not job:

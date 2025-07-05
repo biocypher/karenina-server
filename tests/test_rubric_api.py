@@ -50,9 +50,12 @@ def sample_trait_generation_request():
         },
         "system_prompt": "Generate evaluation criteria for these questions.",
         "user_suggestions": ["clarity", "accuracy"],
-        "model_provider": "google_genai",
-        "model_name": "gemini-2.0-flash",
-        "temperature": 0.1
+        "config": {
+            "model_provider": "google_genai",
+            "model_name": "gemini-2.0-flash",
+            "temperature": 0.1,
+            "interface": "langchain"
+        }
     }
 
 
@@ -267,7 +270,12 @@ class TestRubricTraitGeneration:
     def test_generate_traits_minimal_request(self, client):
         """Test trait generation with minimal request data."""
         minimal_request = {
-            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}}
+            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}},
+            "config": {
+                "model_name": "gemini-2.0-flash",
+                "temperature": 0.1,
+                "interface": "langchain"
+            }
         }
 
         with patch("karenina_server.api.rubric_handlers.GenerationService") as mock_service_class:
@@ -416,7 +424,12 @@ class TestRubricIntegration:
         """
 
         generation_request = {
-            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}}
+            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}},
+            "config": {
+                "model_name": "gemini-2.0-flash",
+                "temperature": 0.1,
+                "interface": "langchain"
+            }
         }
 
         generation_response = client.post("/api/generate-rubric-traits", json=generation_request)
@@ -481,14 +494,14 @@ class TestOpenRouterConfiguration:
     def test_openrouter_config_no_default_provider(self):
         """Test that OpenRouter config doesn't default to google_genai."""
         from karenina_server.api.rubric_handlers import RubricTraitGenerationConfig
-        
+
         # Create config with OpenRouter interface
         config = RubricTraitGenerationConfig(
             model_name="openrouter/cypher-alpha:free",
             temperature=0.1,
             interface="openrouter"
         )
-        
+
         # Provider should be None, not defaulted to google_genai
         assert config.model_provider is None
         assert config.interface == "openrouter"
@@ -547,10 +560,10 @@ class TestOpenRouterConfiguration:
                 "interface": "langchain"
             }
         }
-        
+
         response = client.post("/api/generate-rubric-traits", json=langchain_request)
         assert response.status_code == 200
-        
+
         call_args = mock_service.generate_rubric_traits.call_args
         assert call_args.kwargs["model_provider"] == "google_genai"
         assert call_args.kwargs["interface"] == "langchain"
@@ -564,10 +577,10 @@ class TestOpenRouterConfiguration:
                 "interface": "openrouter"
             }
         }
-        
+
         response = client.post("/api/generate-rubric-traits", json=openrouter_request)
         assert response.status_code == 200
-        
+
         call_args = mock_service.generate_rubric_traits.call_args
         assert call_args.kwargs["model_provider"] == ""  # Empty for OpenRouter
         assert call_args.kwargs["interface"] == "openrouter"

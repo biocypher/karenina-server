@@ -115,7 +115,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             return {"success": True, "file_id": file_id, "filename": file.filename, "size": len(content)}
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}") from e
 
     @app.post("/api/preview-file", response_model=FilePreviewResponse)
     async def preview_file_endpoint(file_id: str = Form(...), sheet_name: str | None = Form(None)):
@@ -194,7 +194,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             )
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error exporting Python file: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error exporting Python file: {e!s}") from e
 
     @app.delete("/api/uploaded-files/{file_id}")
     async def delete_uploaded_file_endpoint(file_id: str):
@@ -216,7 +216,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             return {"message": f"File {file_id} deleted successfully"}
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error deleting file: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error deleting file: {e!s}") from e
 
     @app.post("/api/upload-manual-traces")
     async def upload_manual_traces_endpoint(file: UploadFile = File(...)):
@@ -232,7 +232,7 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             try:
                 json_data = json.loads(content)
             except json.JSONDecodeError as e:
-                raise HTTPException(status_code=400, detail=f"Invalid JSON format: {e}")
+                raise HTTPException(status_code=400, detail=f"Invalid JSON format: {e}") from e
 
             # Load traces into the trace manager
             load_manual_traces(json_data)
@@ -248,9 +248,9 @@ def register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, Extr
             }
 
         except ManualTraceError as e:
-            raise HTTPException(status_code=400, detail=f"Manual trace validation error: {e}")
+            raise HTTPException(status_code=400, detail=f"Manual trace validation error: {e}") from e
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error uploading manual traces: {e}")
+            raise HTTPException(status_code=500, detail=f"Error uploading manual traces: {e}") from e
 
     @app.get("/api/manual-traces/status")
     async def get_manual_traces_status():
