@@ -145,9 +145,16 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             if not results:
                 raise HTTPException(status_code=404, detail="No results available")
 
+            # Get global rubric for CSV export
+            global_rubric = None
+            if fmt.lower() == "csv":
+                from ..services.rubric_service import rubric_service
+
+                global_rubric = rubric_service.get_current_rubric()
+
             # Export based on format
             if fmt.lower() == "csv":
-                content = export_verification_results_csv(job, results)
+                content = export_verification_results_csv(job, results, global_rubric)
                 media_type = "text/csv"
             else:
                 content = export_verification_results_json(job, results)
