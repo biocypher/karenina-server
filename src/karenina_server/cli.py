@@ -5,7 +5,11 @@ import sys
 
 
 def serve_webapp(
-    host: str = "localhost", port: int = 8080, dev: bool = False, use_fastapi: bool = True, webapp_dir: str = None
+    host: str = "localhost",
+    port: int = 8080,
+    dev: bool = False,
+    use_fastapi: bool = True,
+    webapp_dir: str | None = None,
 ) -> None:
     """Serve the Karenina webapp locally.
 

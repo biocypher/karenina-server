@@ -9,11 +9,12 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 # FastAPI imports
 try:
     import uvicorn
-    from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+    from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
@@ -21,12 +22,12 @@ try:
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
-    BaseModel = None
+    BaseModel = None  # type: ignore[misc,assignment]
 
 # Import LLM functionality from the karenina package
 try:
-    from karenina.llm import ChatRequest, ChatResponse, call_model, delete_session, get_session, list_sessions
-    from karenina.llm.interface import LANGCHAIN_AVAILABLE, chat_sessions
+    import karenina.llm  # noqa: F401 - Test if LLM module is available
+    from karenina.llm.interface import LANGCHAIN_AVAILABLE
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -35,7 +36,7 @@ except ImportError:
 
 # Import Question Extractor functionality
 try:
-    from karenina.questions.extractor import extract_and_generate_questions, get_file_preview
+    import karenina.questions.extractor  # noqa: F401 - Test if extractor module is available
 
     EXTRACTOR_AVAILABLE = True
 except ImportError:
@@ -50,9 +51,9 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
     class FilePreviewResponse(BaseModel):
         success: bool
         total_rows: int | None = None
-        columns: list | None = None
+        columns: list[str] | None = None
         preview_rows: int | None = None
-        data: list | None = None
+        data: list[dict[str, Any]] | None = None
         error: str | None = None
 
     class ExtractQuestionsRequest(BaseModel):
@@ -64,7 +65,7 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
     class ExtractQuestionsResponse(BaseModel):
         success: bool
         questions_count: int | None = None
-        questions_data: dict | None = None
+        questions_data: dict[str, Any] | None = None
         error: str | None = None
 
     # Template Generation API Models
@@ -75,7 +76,7 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         interface: str = "langchain"
 
     class TemplateGenerationRequest(BaseModel):
-        questions: QuestionData
+        questions: dict[str, Any]
         config: TemplateGenerationConfig
         custom_system_prompt: str | None = None
 
@@ -93,16 +94,16 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         total_count: int
         estimated_time_remaining: float | None = None
         error: str | None = None
-        result: dict | None = None
+        result: dict[str, Any] | None = None
 
 else:
     # Fallback classes for when FastAPI is not available
-    FilePreviewResponse = None
-    ExtractQuestionsRequest = None
-    ExtractQuestionsResponse = None
-    TemplateGenerationRequest = None
-    TemplateGenerationResponse = None
-    TemplateGenerationStatusResponse = None
+    FilePreviewResponse = None  # type: ignore[misc,assignment]
+    ExtractQuestionsRequest = None  # type: ignore[misc,assignment]
+    ExtractQuestionsResponse = None  # type: ignore[misc,assignment]
+    TemplateGenerationRequest = None  # type: ignore[misc,assignment]
+    TemplateGenerationResponse = None  # type: ignore[misc,assignment]
+    TemplateGenerationStatusResponse = None  # type: ignore[misc,assignment]
 
 
 # Global verification service instance
@@ -112,23 +113,23 @@ verification_service = None
 class KareninaHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Custom HTTP request handler for serving the Karenina webapp."""
 
-    def __init__(self, *args, webapp_dir: Path, **kwargs):
+    def __init__(self, *args: Any, webapp_dir: Path, **kwargs: Any) -> None:
         self.webapp_dir = webapp_dir
         super().__init__(*args, directory=str(webapp_dir), **kwargs)
 
-    def end_headers(self):
+    def end_headers(self) -> None:
         """Add CORS headers and other necessary headers."""
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         super().end_headers()
 
-    def do_OPTIONS(self):
+    def do_OPTIONS(self) -> None:
         """Handle OPTIONS requests for CORS."""
         self.send_response(200)
         self.end_headers()
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         """Handle GET requests with SPA routing support."""
         # For SPA routing, serve index.html for non-asset requests
         if (
@@ -219,10 +220,10 @@ def build_webapp(webapp_dir: Path, force_rebuild: bool = False) -> Path:
         except subprocess.CalledProcessError as e:
             print(f"❌ Failed to install dependencies: {e.stderr}")
             raise
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             raise RuntimeError(
                 "npm not found. Please install Node.js and npm to build the webapp.\nVisit: https://nodejs.org/"
-            )
+            ) from e
 
     # Build the webapp
     try:
@@ -258,10 +259,10 @@ def start_development_server(webapp_dir: Path, host: str, port: int) -> None:
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to start development server: {e}")
         raise
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         raise RuntimeError(
             "npm not found. Please install Node.js and npm to run the development server.\nVisit: https://nodejs.org/"
-        )
+        ) from e
 
 
 def start_production_server(dist_dir: Path, host: str, port: int) -> None:
@@ -269,13 +270,13 @@ def start_production_server(dist_dir: Path, host: str, port: int) -> None:
     print(f"🌐 Starting production server at http://{host}:{port}")
 
     # Create a custom handler with the dist directory
-    def handler_factory(*args, **kwargs):
+    def handler_factory(*args: Any, **kwargs: Any) -> KareninaHTTPRequestHandler:
         return KareninaHTTPRequestHandler(*args, webapp_dir=dist_dir, **kwargs)
 
     try:
         with socketserver.TCPServer((host, port), handler_factory) as httpd:
             # Open browser after a short delay
-            def open_browser():
+            def open_browser() -> None:
                 time.sleep(1)
                 webbrowser.open(f"http://{host}:{port}")
 
@@ -338,7 +339,7 @@ def start_server(
 # call_model function has been moved to the llm submodule
 
 
-def create_fastapi_app(webapp_dir: Path):
+def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     """Create FastAPI application with API routes and static file serving."""
     if not FASTAPI_AVAILABLE:
         raise RuntimeError("FastAPI is not available. Please install FastAPI dependencies.")
@@ -377,7 +378,7 @@ def create_fastapi_app(webapp_dir: Path):
         app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="assets")
 
         @app.get("/{full_path:path}")
-        async def serve_webapp(full_path: str):
+        async def serve_webapp(full_path: str) -> FileResponse:
             """Serve the webapp with SPA routing support."""
             # Serve specific files if they exist
             file_path = dist_dir / full_path
@@ -411,7 +412,7 @@ def start_fastapi_server(webapp_dir: Path, host: str, port: int) -> None:
     app = create_fastapi_app(webapp_dir)
 
     # Open browser after a short delay
-    def open_browser():
+    def open_browser() -> None:
         time.sleep(2)
         webbrowser.open(f"http://{host}:{port}")
 

@@ -10,4 +10,4 @@ This package provides the web API layer for Karenina, including:
 __version__ = "0.1.0"
 
 # Import services to make them available for testing
-from . import services
+from . import services as services  # noqa: F401

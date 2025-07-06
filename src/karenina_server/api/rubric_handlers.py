@@ -41,7 +41,7 @@ class RubricTraitGenerationResponse(BaseModel):
 
 
 @router.post("/generate-rubric-traits", response_model=RubricTraitGenerationResponse)
-async def generate_rubric_traits(request: RubricTraitGenerationRequest):
+async def generate_rubric_traits(request: RubricTraitGenerationRequest) -> RubricTraitGenerationResponse:
     """
     Generate rubric traits using LLM based on question context.
 
@@ -56,7 +56,7 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
                 id=q_id,
                 question=q_data.get("question", "Unknown question"),
                 raw_answer=q_data.get("raw_answer", "Unknown answer"),
-                tags=q_data.get("tags", [])
+                tags=q_data.get("tags", []),
             )
             questions.append(question)
 
@@ -102,7 +102,7 @@ async def generate_rubric_traits(request: RubricTraitGenerationRequest):
 
 
 @router.post("/rubric", response_model=dict[str, str])
-async def create_or_update_rubric(rubric: Rubric):
+async def create_or_update_rubric(rubric: Rubric) -> dict[str, str]:
     """
     Create or update the current rubric.
 
@@ -130,7 +130,7 @@ async def create_or_update_rubric(rubric: Rubric):
 
 
 @router.get("/rubric", response_model=Rubric | None)
-async def get_current_rubric():
+async def get_current_rubric() -> Rubric | None:
     """
     Get the current rubric.
 
@@ -141,7 +141,7 @@ async def get_current_rubric():
 
 
 @router.delete("/rubric", response_model=dict[str, str])
-async def delete_current_rubric():
+async def delete_current_rubric() -> dict[str, str]:
     """
     Delete the current rubric.
 
@@ -152,7 +152,7 @@ async def delete_current_rubric():
 
 
 @router.get("/rubric/default-system-prompt", response_model=dict[str, str])
-async def get_default_system_prompt():
+async def get_default_system_prompt() -> dict[str, str]:
     """
     Get the default system prompt for rubric trait generation.
 
@@ -237,19 +237,19 @@ I have analyzed the question-answer and ....
 
 def _build_rubric_generation_prompt(questions: list[Question], user_suggestions: list[str] | None) -> str:
     """Build the user prompt for rubric trait generation."""
-    user_prompt = '''<question_answer_pairs>\n'''
+    user_prompt = """<question_answer_pairs>\n"""
 
     # Add question context
     for i, question in enumerate(questions, 1):
         user_prompt += f"{i}. {question.question}: {question.raw_answer}\n"
 
-    user_prompt += '''</question_answer_pairs>'''
+    user_prompt += """</question_answer_pairs>"""
 
     # Add user suggestions if provided
-    user_prompt += '''\n\n<user_traits_suggestions>'''
+    user_prompt += """\n\n<user_traits_suggestions>"""
     if user_suggestions:
         user_prompt += f"{', '.join(user_suggestions)}"
-    user_prompt += '''\n</user_traits_suggestions>'''
+    user_prompt += """\n</user_traits_suggestions>"""
 
     return user_prompt
 

@@ -2,26 +2,27 @@
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 
-def register_verification_routes(app, verification_service):
+def register_verification_routes(app: Any, verification_service: Any) -> None:
     """Register verification-related routes."""
 
-    @app.get("/api/finished-templates")
-    async def get_finished_templates_endpoint():
+    @app.get("/api/finished-templates")  # type: ignore[misc]
+    async def get_finished_templates_endpoint() -> dict[str, Any]:
         """Get list of finished templates for verification."""
         try:
             # This is a placeholder - in a real implementation, you'd get this from your data store
             # For now, return empty list since we don't have access to the checkpoint data here
             return {"finished_templates": []}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
 
-    @app.post("/api/start-verification")
-    async def start_verification_endpoint(request: dict):
+    @app.post("/api/start-verification")  # type: ignore[misc]
+    async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Start verification job."""
         try:
             from karenina.benchmark.models import FinishedTemplate, VerificationConfig
@@ -41,10 +42,10 @@ def register_verification_routes(app, verification_service):
             # Validate rubric availability if rubric evaluation is enabled
             if getattr(config, "rubric_enabled", False):
                 from ..services.rubric_service import rubric_service
-                
+
                 # Check for any available rubrics (global OR question-specific)
                 has_any_rubric = rubric_service.has_any_rubric(finished_templates)
-                
+
                 if not has_any_rubric:
                     raise HTTPException(
                         status_code=400,
@@ -68,25 +69,25 @@ def register_verification_routes(app, verification_service):
             }
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
-    @app.get("/api/verification-progress/{job_id}")
-    async def get_verification_progress(job_id: str):
+    @app.get("/api/verification-progress/{job_id}")  # type: ignore[misc]
+    async def get_verification_progress(job_id: str) -> dict[str, Any]:
         """Get verification progress."""
         try:
             progress = verification_service.get_progress(job_id)
             if not progress:
                 raise HTTPException(status_code=404, detail="Job not found")
 
-            return progress
+            return progress  # type: ignore[no-any-return]
 
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
 
-    @app.get("/api/verification-results/{job_id}")
-    async def get_verification_results(job_id: str):
+    @app.get("/api/verification-results/{job_id}")  # type: ignore[misc]
+    async def get_verification_results(job_id: str) -> dict[str, Any]:
         """Get verification results."""
         try:
             results = verification_service.get_job_results(job_id)
@@ -98,20 +99,20 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}") from e
 
-    @app.get("/api/all-verification-results")
-    async def get_all_verification_results():
+    @app.get("/api/all-verification-results")  # type: ignore[misc]
+    async def get_all_verification_results() -> dict[str, Any]:
         """Get all historical verification results across all jobs."""
         try:
             results = verification_service.get_all_historical_results()
             return {"results": results}
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
 
-    @app.post("/api/cancel-verification/{job_id}")
-    async def cancel_verification_endpoint(job_id: str):
+    @app.post("/api/cancel-verification/{job_id}")  # type: ignore[misc]
+    async def cancel_verification_endpoint(job_id: str) -> dict[str, Any]:
         """Cancel verification job."""
         try:
             success = verification_service.cancel_job(job_id)
@@ -123,10 +124,10 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
 
-    @app.get("/api/export-verification/{job_id}")
-    async def export_verification_endpoint(job_id: str, fmt: str = "json"):
+    @app.get("/api/export-verification/{job_id}")  # type: ignore[misc]
+    async def export_verification_endpoint(job_id: str, fmt: str = "json") -> FileResponse:
         """Export verification results."""
         try:
             from karenina.benchmark.exporter import (
@@ -167,4 +168,4 @@ def register_verification_routes(app, verification_service):
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}")
+            raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}") from e

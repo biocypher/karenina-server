@@ -27,15 +27,15 @@ def sample_rubric_data():
                 "description": "Is the response factually accurate?",
                 "kind": "boolean",
                 "min_score": None,
-                "max_score": None
+                "max_score": None,
             },
             {
                 "name": "completeness",
                 "description": "How complete is the response?",
                 "kind": "score",
                 "min_score": 1,
-                "max_score": 5
-            }
+                "max_score": 5,
+            },
         ]
     }
 
@@ -46,13 +46,16 @@ def sample_trait_generation_request():
     return {
         "questions": {
             "q1": {"question": "What is the capital of France?", "raw_answer": "Paris", "tags": []},
-            "q2": {"question": "Explain photosynthesis.", "raw_answer": "Process plants use to make food", "tags": []}
+            "q2": {"question": "Explain photosynthesis.", "raw_answer": "Process plants use to make food", "tags": []},
         },
         "system_prompt": "Generate evaluation criteria for these questions.",
         "user_suggestions": ["clarity", "accuracy"],
-        "model_provider": "google_genai",
-        "model_name": "gemini-2.0-flash",
-        "temperature": 0.1
+        "config": {
+            "model_provider": "google_genai",
+            "model_name": "gemini-2.0-flash",
+            "temperature": 0.1,
+            "interface": "langchain",
+        },
     }
 
 
@@ -101,15 +104,15 @@ class TestRubricCRUD:
                 "description": "First accuracy trait",
                 "kind": "boolean",
                 "min_score": None,
-                "max_score": None
+                "max_score": None,
             },
             {
                 "name": "accuracy",
                 "description": "Second accuracy trait",
                 "kind": "score",
                 "min_score": 1,
-                "max_score": 5
-            }
+                "max_score": 5,
+            },
         ]
 
         response = client.post("/api/rubric", json=sample_rubric_data)
@@ -146,11 +149,7 @@ class TestRubricCRUD:
 
         # Update it
         updated_data = sample_rubric_data.copy()
-        updated_data["traits"].append({
-            "name": "clarity",
-            "description": "Is the response clear?",
-            "kind": "boolean"
-        })
+        updated_data["traits"].append({"name": "clarity", "description": "Is the response clear?", "kind": "boolean"})
 
         response = client.post("/api/rubric", json=updated_data)
 
@@ -267,13 +266,14 @@ class TestRubricTraitGeneration:
     def test_generate_traits_minimal_request(self, client):
         """Test trait generation with minimal request data."""
         minimal_request = {
-            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}}
+            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}},
+            "config": {"model_name": "gemini-2.0-flash", "temperature": 0.1, "interface": "langchain"},
         }
 
         with patch("karenina_server.api.rubric_handlers.GenerationService") as mock_service_class:
             mock_service = Mock()
             mock_service_class.return_value = mock_service
-            mock_service.generate_rubric_traits.return_value = '[]'
+            mock_service.generate_rubric_traits.return_value = "[]"
 
             response = client.post("/api/generate-rubric-traits", json=minimal_request)
 
@@ -288,7 +288,7 @@ class TestRubricTraitGeneration:
         with patch("karenina_server.api.rubric_handlers.GenerationService") as mock_service_class:
             mock_service = Mock()
             mock_service_class.return_value = mock_service
-            mock_service.generate_rubric_traits.return_value = '[]'
+            mock_service.generate_rubric_traits.return_value = "[]"
 
             response = client.post("/api/generate-rubric-traits", json=sample_trait_generation_request)
 
@@ -311,7 +311,7 @@ class TestRubricValidation:
                 {
                     "name": "",  # Empty name should be caught by Pydantic
                     "description": "Valid description",
-                    "kind": "boolean"
+                    "kind": "boolean",
                 }
             ]
         }
@@ -328,7 +328,7 @@ class TestRubricValidation:
                 {
                     "name": "test_trait",
                     "description": "Valid description",
-                    "kind": "invalid_kind"  # Invalid trait kind
+                    "kind": "invalid_kind",  # Invalid trait kind
                 }
             ]
         }
@@ -345,15 +345,7 @@ class TestRubricIntegration:
     def test_complete_rubric_workflow(self, client):
         """Test complete workflow: create, read, update, delete."""
         # Step 1: Create rubric
-        create_data = {
-            "traits": [
-                {
-                    "name": "initial_trait",
-                    "description": "Initial trait",
-                    "kind": "boolean"
-                }
-            ]
-        }
+        create_data = {"traits": [{"name": "initial_trait", "description": "Initial trait", "kind": "boolean"}]}
 
         create_response = client.post("/api/rubric", json=create_data)
         assert create_response.status_code == 200
@@ -366,13 +358,15 @@ class TestRubricIntegration:
 
         # Step 3: Update rubric
         update_data = data.copy()
-        update_data["traits"].append({
-            "name": "added_trait",
-            "description": "Added during update",
-            "kind": "score",
-            "min_score": 1,
-            "max_score": 3
-        })
+        update_data["traits"].append(
+            {
+                "name": "added_trait",
+                "description": "Added during update",
+                "kind": "score",
+                "min_score": 1,
+                "max_score": 3,
+            }
+        )
 
         update_response = client.post("/api/rubric", json=update_data)
         assert update_response.status_code == 200
@@ -416,7 +410,8 @@ class TestRubricIntegration:
         """
 
         generation_request = {
-            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}}
+            "questions": {"q1": {"question": "Test question?", "raw_answer": "Test answer", "tags": []}},
+            "config": {"model_name": "gemini-2.0-flash", "temperature": 0.1, "interface": "langchain"},
         }
 
         generation_response = client.post("/api/generate-rubric-traits", json=generation_request)
@@ -424,9 +419,7 @@ class TestRubricIntegration:
         generated_traits = generation_response.json()["traits"]
 
         # Step 2: Create rubric using generated traits
-        rubric_data = {
-            "traits": generated_traits
-        }
+        rubric_data = {"traits": generated_traits}
 
         create_response = client.post("/api/rubric", json=rubric_data)
         assert create_response.status_code == 200
@@ -453,11 +446,7 @@ class TestRubricIntegration:
     def test_rubric_overwrite_behavior(self, client):
         """Test that creating a new rubric overwrites the existing one."""
         # Create first rubric
-        first_rubric = {
-            "traits": [
-                {"name": "trait1", "description": "First trait", "kind": "boolean"}
-            ]
-        }
+        first_rubric = {"traits": [{"name": "trait1", "description": "First trait", "kind": "boolean"}]}
         client.post("/api/rubric", json=first_rubric)
 
         # Create second rubric (should overwrite)
@@ -481,14 +470,12 @@ class TestOpenRouterConfiguration:
     def test_openrouter_config_no_default_provider(self):
         """Test that OpenRouter config doesn't default to google_genai."""
         from karenina_server.api.rubric_handlers import RubricTraitGenerationConfig
-        
+
         # Create config with OpenRouter interface
         config = RubricTraitGenerationConfig(
-            model_name="openrouter/cypher-alpha:free",
-            temperature=0.1,
-            interface="openrouter"
+            model_name="openrouter/cypher-alpha:free", temperature=0.1, interface="openrouter"
         )
-        
+
         # Provider should be None, not defaulted to google_genai
         assert config.model_provider is None
         assert config.interface == "openrouter"
@@ -510,15 +497,13 @@ class TestOpenRouterConfiguration:
         """
 
         request_data = {
-            "questions": {
-                "q1": {"question": "Test?", "raw_answer": "Answer", "tags": []}
-            },
+            "questions": {"q1": {"question": "Test?", "raw_answer": "Answer", "tags": []}},
             "config": {
                 "model_name": "openrouter/cypher-alpha:free",
                 "temperature": 0.1,
-                "interface": "openrouter"
+                "interface": "openrouter",
                 # Note: no model_provider field
-            }
+            },
         }
 
         response = client.post("/api/generate-rubric-traits", json=request_data)
@@ -544,13 +529,13 @@ class TestOpenRouterConfiguration:
                 "model_provider": "google_genai",
                 "model_name": "gemini-2.0-flash",
                 "temperature": 0.1,
-                "interface": "langchain"
-            }
+                "interface": "langchain",
+            },
         }
-        
+
         response = client.post("/api/generate-rubric-traits", json=langchain_request)
         assert response.status_code == 200
-        
+
         call_args = mock_service.generate_rubric_traits.call_args
         assert call_args.kwargs["model_provider"] == "google_genai"
         assert call_args.kwargs["interface"] == "langchain"
@@ -558,17 +543,12 @@ class TestOpenRouterConfiguration:
         # Test 2: OpenRouter without provider
         openrouter_request = {
             "questions": {"q1": {"question": "Test?", "raw_answer": "Answer", "tags": []}},
-            "config": {
-                "model_name": "openrouter/cypher-alpha:free",
-                "temperature": 0.1,
-                "interface": "openrouter"
-            }
+            "config": {"model_name": "openrouter/cypher-alpha:free", "temperature": 0.1, "interface": "openrouter"},
         }
-        
+
         response = client.post("/api/generate-rubric-traits", json=openrouter_request)
         assert response.status_code == 200
-        
+
         call_args = mock_service.generate_rubric_traits.call_args
         assert call_args.kwargs["model_provider"] == ""  # Empty for OpenRouter
         assert call_args.kwargs["interface"] == "openrouter"
-
