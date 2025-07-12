@@ -1,6 +1,5 @@
 """Service for managing answer template generation with progress tracking."""
 
-import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -188,7 +187,7 @@ class GenerationService:
                     # Generate template using the generator
                     raw_template_response = generate_answer_template(
                         question=question_data.get("question", ""),
-                        question_json=json.dumps(question_data),
+                        raw_answer=question_data.get("raw_answer", ""),
                         model=model_name,
                         model_provider=model_provider,
                         temperature=temperature,
