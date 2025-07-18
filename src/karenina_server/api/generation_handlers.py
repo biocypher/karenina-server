@@ -33,6 +33,7 @@ def register_generation_routes(
                 questions_data=request.questions,
                 config=request.config,
                 custom_system_prompt=request.custom_system_prompt,
+                force_regenerate=getattr(request, "force_regenerate", False),
             )
 
             return TemplateGenerationResponse(

@@ -79,6 +79,7 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         questions: dict[str, Any]
         config: TemplateGenerationConfig
         custom_system_prompt: str | None = None
+        force_regenerate: bool = False
 
     class TemplateGenerationResponse(BaseModel):
         job_id: str
