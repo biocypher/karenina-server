@@ -26,12 +26,14 @@ class TemplateGenerationJob:
         config: ConfigType,
         total_questions: int,
         custom_system_prompt: str | None = None,
+        force_regenerate: bool = False,
     ):
         self.job_id = job_id
         self.questions_data = questions_data
         self.config = config
         self.total_questions = total_questions
         self.custom_system_prompt = custom_system_prompt
+        self.force_regenerate = force_regenerate
 
         # Status tracking
         self.status = "pending"  # pending, running, completed, failed, cancelled
@@ -89,7 +91,11 @@ class GenerationService:
         self.futures: dict[str, Any] = {}  # Add missing futures dict
 
     def start_generation(
-        self, questions_data: dict[str, Any], config: dict[str, Any], custom_system_prompt: str | None = None
+        self,
+        questions_data: dict[str, Any],
+        config: dict[str, Any],
+        custom_system_prompt: str | None = None,
+        force_regenerate: bool = False,
     ) -> str:
         """Start a new template generation job."""
         job_id = str(uuid.uuid4())
@@ -101,6 +107,7 @@ class GenerationService:
             config=config,
             total_questions=len(questions_data),
             custom_system_prompt=custom_system_prompt,
+            force_regenerate=force_regenerate,
         )
 
         self.jobs[job_id] = job
