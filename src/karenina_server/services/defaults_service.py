@@ -1,10 +1,13 @@
 """Service for managing persistent default LLM configuration settings."""
+# ruff: noqa: B904  # Intentionally suppress exception chaining for security
 
 import json
 import logging
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,8 @@ class DefaultsService:
             project_root = Path(__file__).parent.parent.parent.parent.parent
             defaults_file_path = project_root / "defaults.json"
 
-        self.defaults_file_path = defaults_file_path
+        # Validate and canonicalize path to prevent traversal attacks
+        self.defaults_file_path = self._validate_file_path(defaults_file_path)
 
         # Hardcoded fallback defaults
         self.fallback_defaults = {
@@ -31,6 +35,62 @@ class DefaultsService:
             "default_provider": "google_genai",
             "default_model": "gemini-pro",
         }
+
+    def _validate_file_path(self, file_path: Path) -> Path:
+        """Validate file path to prevent directory traversal attacks.
+
+        Args:
+            file_path: Path to validate
+
+        Returns:
+            Canonicalized safe path
+
+        Raises:
+            ValueError: If path is unsafe
+        """
+        try:
+            # Resolve to absolute path and normalize
+            resolved_path = file_path.resolve()
+
+            # Get project root for comparison
+            project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
+
+            # Ensure the path is within project directory or user home
+            user_home = Path.home().resolve()
+
+            # Get system temp directory (for tests)
+            import tempfile
+
+            system_temp = Path(tempfile.gettempdir()).resolve()
+
+            # Forbidden paths (but allow system temp for testing)
+            forbidden_paths = [
+                Path("/etc"),
+                Path("/usr"),
+                Path("/bin"),
+                Path("/sbin"),
+                Path("/root"),
+            ]
+
+            # Check if path is in forbidden directories
+            for forbidden in forbidden_paths:
+                if resolved_path.is_relative_to(forbidden.resolve()):
+                    raise ValueError(f"Path outside allowed directories: {resolved_path}")
+
+            # Allow paths within project root, user home, or system temp directory
+            if (
+                resolved_path.is_relative_to(project_root)
+                or resolved_path.is_relative_to(user_home)
+                or resolved_path.is_relative_to(system_temp)
+            ):
+                return resolved_path
+
+            raise ValueError(f"Path outside allowed directories: {resolved_path}")
+
+        except (OSError, ValueError) as e:
+            if "Path outside allowed directories" in str(e):
+                raise e
+            raise ValueError(f"Invalid file path: {e}")
 
     def _validate_defaults(self, defaults: dict[str, str]) -> tuple[bool, str | None]:
         """Validate default configuration values.
@@ -122,12 +182,19 @@ class DefaultsService:
                 "saved_at": datetime.utcnow().isoformat() + "Z",
             }
 
-            # Write to file
-            with open(self.defaults_file_path, "w") as f:
-                json.dump(data_to_save, f, indent=2)
+            # Write to file with secure permissions
+            # Use temporary file and atomic move
+            temp_file = self.defaults_file_path.with_suffix(".tmp")
+            fd = os.open(str(temp_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data_to_save, f, indent=2)
+            except:
+                os.close(fd)
+                raise
 
-            # Set proper file permissions
-            self.defaults_file_path.chmod(0o644)
+            # Atomic move to replace original file
+            temp_file.replace(self.defaults_file_path)
 
             logger.info(f"Saved defaults to {self.defaults_file_path}")
 
@@ -165,7 +232,7 @@ class DefaultsService:
             shutil.copy2(backup_path, self.defaults_file_path)
             logger.info("Restored defaults file from backup")
 
-    def get_file_status(self) -> dict[str, any]:
+    def get_file_status(self) -> dict[str, Any]:
         """Get status information about the defaults file.
 
         Returns:
