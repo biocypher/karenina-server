@@ -359,6 +359,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
 
     # Register API routes from extracted handlers
     from .api.chat_handlers import register_chat_routes
+    from .api.config_handlers import router as config_router
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
     from .api.rubric_handlers import router as rubric_router
@@ -372,6 +373,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
     )
     app.include_router(rubric_router, prefix="/api")
+    app.include_router(config_router, prefix="/api/config")
 
     # Serve static files from the webapp dist directory
     dist_dir = webapp_dir / "dist"

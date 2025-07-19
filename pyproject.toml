@@ -33,6 +33,7 @@ dependencies = [
     "websockets>=12.0", # For WebSocket support
     "jinja2>=3.1.0", # For HTML templates
     "aiofiles>=23.0.0", # For async file operations
+    "python-dotenv>=1.1.1",
 ]
 
 [project.optional-dependencies]
