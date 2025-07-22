@@ -356,7 +356,6 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
             print("Warning: Verification service not available")
 
     # Register API routes from extracted handlers
-    from .api.chat_handlers import register_chat_routes
     from .api.config_handlers import router as config_router
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
@@ -364,7 +363,6 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     from .api.verification_handlers import register_verification_routes
 
     # Register all route handlers
-    register_chat_routes(app)
     register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, ExtractQuestionsResponse)
     register_verification_routes(app, verification_service)
     register_generation_routes(
