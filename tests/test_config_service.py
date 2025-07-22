@@ -69,30 +69,6 @@ class TestConfigurationService:
         env_vars = config_service.read_env_vars(mask_secrets=False)
         assert env_vars["NEW_VAR"] == "new_var_value"
 
-    def test_validate_api_key_format(self, config_service):
-        """Test API key format validation."""
-        # Valid OpenAI key
-        is_valid, error = config_service._validate_api_key(
-            "OPENAI_API_KEY", "sk-proj123456789012345678901234567890123456789012345"
-        )
-        assert is_valid
-        assert error is None
-
-        # Invalid OpenAI key (wrong prefix)
-        is_valid, error = config_service._validate_api_key("OPENAI_API_KEY", "invalid-key")
-        assert not is_valid
-        assert "Invalid format" in error
-
-        # Valid Google key
-        is_valid, error = config_service._validate_api_key("GOOGLE_API_KEY", "AIzaSyA-test_key_with_39_characters_123")
-        assert is_valid
-        assert error is None
-
-        # Unknown key type (allow any format)
-        is_valid, error = config_service._validate_api_key("UNKNOWN_KEY", "any-value")
-        assert is_valid
-        assert error is None
-
     def test_remove_env_var(self, config_service):
         """Test removing an environment variable."""
         # Remove existing variable
@@ -124,28 +100,6 @@ class TestConfigurationService:
         assert env_vars["NEW_VAR1"] == "value1"
         assert env_vars["NEW_VAR2"] == "value2"
         assert "OPENAI_API_KEY" not in env_vars  # Old vars removed
-
-    def test_validate_provider_config(self, config_service):
-        """Test provider configuration validation."""
-        # OpenAI configured
-        is_valid, error = config_service.validate_provider_config("openai")
-        assert is_valid
-        assert error is None
-
-        # Google configured
-        is_valid, error = config_service.validate_provider_config("google_genai")
-        assert is_valid
-        assert error is None
-
-        # Anthropic not configured
-        is_valid, error = config_service.validate_provider_config("anthropic")
-        assert not is_valid
-        assert "Missing ANTHROPIC_API_KEY" in error
-
-        # Unknown provider
-        is_valid, error = config_service.validate_provider_config("unknown")
-        assert not is_valid
-        assert "Unknown provider" in error
 
     def test_backup_and_restore(self, config_service, temp_env_file):
         """Test backup creation and restoration."""
@@ -223,53 +177,41 @@ class TestConfigurationServiceSecurity:
         stat = temp_env_file.stat()
         assert stat.st_mode & 0o777 == 0o600
 
-    def test_api_key_format_validation(self, config_service):
-        """Test comprehensive API key format validation."""
-        # Valid OpenAI keys
+    def test_api_key_storage(self, config_service):
+        """Test that API keys can be stored with any format."""
+        # Any OpenAI key format should work
+        config_service.update_env_var("OPENAI_API_KEY", "invalid-key")
+        config_service.update_env_var("OPENAI_API_KEY", "sk-short")
         config_service.update_env_var("OPENAI_API_KEY", "sk-proj-1234567890123456789012345678901234567890")
-        config_service.update_env_var("OPENAI_API_KEY", "sk-1234567890123456789012345678901234567890123456789012345678")
 
-        # Invalid OpenAI keys
-        with pytest.raises(ValueError, match="Invalid format"):
-            config_service.update_env_var("OPENAI_API_KEY", "invalid-key")
-
-        with pytest.raises(ValueError, match="Invalid format"):
-            config_service.update_env_var("OPENAI_API_KEY", "sk-short")
-
-        # Valid Anthropic key
+        # Any Anthropic key format should work
+        config_service.update_env_var("ANTHROPIC_API_KEY", "sk-ant-short")
         config_service.update_env_var("ANTHROPIC_API_KEY", "sk-ant-" + "a" * 95)
 
-        # Invalid Anthropic key
-        with pytest.raises(ValueError, match="Invalid format"):
-            config_service.update_env_var("ANTHROPIC_API_KEY", "sk-ant-short")
-
-        # Valid Google key
+        # Any Google key format should work
+        config_service.update_env_var("GOOGLE_API_KEY", "short")
         config_service.update_env_var("GOOGLE_API_KEY", "a" * 39)
 
-        # Invalid Google key
-        with pytest.raises(ValueError, match="Invalid format"):
-            config_service.update_env_var("GOOGLE_API_KEY", "short")
-
-    def test_bulk_update_atomicity(self, config_service):
-        """Test that bulk updates are atomic (all or nothing)."""
+    def test_bulk_update_functionality(self, config_service):
+        """Test that bulk updates work correctly."""
         # Set initial values
         config_service.update_env_var("VAR1", "value1")
         config_service.update_env_var("VAR2", "value2")
 
-        # Attempt bulk update with one invalid key - should fail completely
+        # Perform bulk update - all should succeed
         updates = [
             ("VAR1", "new_value1"),
-            ("OPENAI_API_KEY", "invalid-key"),  # This should fail validation
+            ("OPENAI_API_KEY", "any-key-format"),  # Any format should work now
             ("VAR2", "new_value2"),
         ]
 
-        with pytest.raises(ValueError, match="Validation failed"):
-            config_service.update_env_vars_bulk(updates)
+        config_service.update_env_vars_bulk(updates)
 
-        # Check that no values were changed
+        # Check that all values were changed
         env_vars = config_service.read_env_vars(mask_secrets=False)
-        assert env_vars["VAR1"] == "value1"  # Should be unchanged
-        assert env_vars["VAR2"] == "value2"  # Should be unchanged
+        assert env_vars["VAR1"] == "new_value1"
+        assert env_vars["VAR2"] == "new_value2"
+        assert env_vars["OPENAI_API_KEY"] == "any-key-format"
 
     def test_backup_and_restore_on_failure(self, config_service):
         """Test that backup and restore works on operation failure."""
@@ -320,11 +262,11 @@ class TestConfigurationServiceSecurity:
 
     def test_masking_preserves_security(self, config_service):
         """Test that masking properly obscures sensitive data."""
-        # Set various API keys
+        # Set various API keys (any format should work now)
         keys_and_values = {
-            "OPENAI_API_KEY": "sk-proj-1234567890123456789012345678901234567890",
-            "ANTHROPIC_API_KEY": "sk-ant-" + "a" * 95,
-            "GOOGLE_API_KEY": "a" * 39,
+            "OPENAI_API_KEY": "any-openai-key-format",
+            "ANTHROPIC_API_KEY": "any-anthropic-key-format",
+            "GOOGLE_API_KEY": "any-google-key-format",
             "REGULAR_VAR": "not_a_secret",
         }
 

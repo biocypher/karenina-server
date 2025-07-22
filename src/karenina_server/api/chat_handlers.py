@@ -6,12 +6,11 @@ from fastapi import HTTPException
 
 try:
     from karenina.llm import ChatRequest, ChatResponse, call_model, delete_session, get_session, list_sessions
-    from karenina.llm.interface import LANGCHAIN_AVAILABLE, LLMNotAvailableError, SessionError, chat_sessions
+    from karenina.llm.interface import LLMNotAvailableError, SessionError, chat_sessions
 
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
-    LANGCHAIN_AVAILABLE = False
 
 
 def register_chat_routes(app: Any) -> None:
@@ -78,7 +77,7 @@ def register_chat_routes(app: Any) -> None:
     @app.get("/api/health")  # type: ignore[misc]
     async def health_check() -> dict[str, Any]:
         """Health check endpoint."""
-        return {"status": "healthy", "langchain_available": LANGCHAIN_AVAILABLE, "active_sessions": len(chat_sessions)}
+        return {"status": "healthy", "llm_available": LLM_AVAILABLE, "active_sessions": len(chat_sessions)}
 
     @app.get("/api/timestamp")  # type: ignore[misc]
     async def get_server_timestamp() -> dict[str, str]:

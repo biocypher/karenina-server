@@ -27,12 +27,10 @@ except ImportError:
 # Import LLM functionality from the karenina package
 try:
     import karenina.llm  # noqa: F401 - Test if LLM module is available
-    from karenina.llm.interface import LANGCHAIN_AVAILABLE
 
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
-    LANGCHAIN_AVAILABLE = False
 
 # Import Question Extractor functionality
 try:

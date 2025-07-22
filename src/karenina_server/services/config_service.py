@@ -3,7 +3,6 @@
 
 import logging
 import os
-import re
 import shutil
 from pathlib import Path
 
@@ -28,18 +27,6 @@ class ConfigurationService:
 
         # Validate and canonicalize path to prevent traversal attacks
         self.env_file_path = self._validate_file_path(env_file_path)
-        self.api_key_patterns = {
-            # OpenAI keys: traditional sk- format and newer sk-proj- format
-            "OPENAI_API_KEY": r"^sk-(proj-)?[a-zA-Z0-9]{20,}$",
-            # Anthropic keys: sk-ant- prefix
-            "ANTHROPIC_API_KEY": r"^sk-ant-[a-zA-Z0-9-]{95,}$",
-            # Google API keys: 39 characters, alphanumeric with underscores/hyphens
-            "GOOGLE_API_KEY": r"^[a-zA-Z0-9_-]{35,43}$",
-            # OpenRouter keys: sk-or- prefix
-            "OPENROUTER_API_KEY": r"^sk-or-[a-zA-Z0-9]{48,}$",
-            # Gemini keys: alternative format
-            "GEMINI_API_KEY": r"^[a-zA-Z0-9_-]{35,43}$",
-        }
 
     def _validate_file_path(self, file_path: Path) -> Path:
         """Validate file path to prevent directory traversal attacks.
@@ -111,26 +98,6 @@ class ConfigurationService:
             return "*" * (len(value) - 4) + value[-4:]
         return value
 
-    def _validate_api_key(self, key: str, value: str) -> tuple[bool, str | None]:
-        """Validate API key format.
-
-        Args:
-            key: The environment variable name
-            value: The API key value
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        if key not in self.api_key_patterns:
-            # Not a known API key, allow any format
-            return True, None
-
-        pattern = self.api_key_patterns[key]
-        if re.match(pattern, value):
-            return True, None
-
-        return False, f"Invalid format for {key}"
-
     def read_env_vars(self, mask_secrets: bool = True) -> dict[str, str]:
         """Read environment variables from .env file.
 
@@ -171,14 +138,8 @@ class ConfigurationService:
             value: The new value
 
         Raises:
-            ValueError: If validation fails
             IOError: If file operations fail
         """
-        # Validate API key format if applicable
-        is_valid, error_msg = self._validate_api_key(key, value)
-        if not is_valid:
-            raise ValueError(error_msg)
-
         # Create backup before modification
         self._create_backup()
 
@@ -287,24 +248,13 @@ class ConfigurationService:
             updates: List of (key, value) tuples to update
 
         Raises:
-            ValueError: If any validation fails
             IOError: If file operations fail
         """
-        # Phase 1: Validate all updates without making changes
-        validation_errors = []
-        for key, value in updates:
-            is_valid, error_msg = self._validate_api_key(key, value)
-            if not is_valid:
-                validation_errors.append(f"{key}: {error_msg}")
-
-        if validation_errors:
-            raise ValueError(f"Validation failed: {'; '.join(validation_errors)}")
-
-        # Phase 2: Create backup before any modifications
+        # Create backup before any modifications
         self._create_backup()
 
         try:
-            # Phase 3: Apply all updates
+            # Apply all updates
             for key, value in updates:
                 # Ensure .env file exists with secure permissions
                 if not self.env_file_path.exists():
@@ -337,30 +287,3 @@ class ConfigurationService:
         if backup_path.exists():
             shutil.copy2(backup_path, self.env_file_path)
             logger.info("Restored .env file from backup")
-
-    def validate_provider_config(self, provider: str) -> tuple[bool, str | None]:
-        """Validate if a provider has required configuration.
-
-        Args:
-            provider: The provider name (openai, google_genai, anthropic, openrouter)
-
-        Returns:
-            Tuple of (is_configured, error_message)
-        """
-        env_vars = self.read_env_vars(mask_secrets=False)
-
-        required_keys = {
-            "openai": "OPENAI_API_KEY",
-            "google_genai": "GOOGLE_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-
-        if provider not in required_keys:
-            return False, f"Unknown provider: {provider}"
-
-        required_key = required_keys[provider]
-        if required_key not in env_vars or not env_vars[required_key]:
-            return False, f"Missing {required_key} for {provider}"
-
-        return True, None

@@ -278,16 +278,16 @@ class TestSecurityFeatures:
         response = test_client.put("/api/config/env-vars", json=payload)
         assert response.status_code == 422  # Should be blocked by regex validation
 
-    def test_api_key_validation(self, test_client):
-        """Test API key format validation."""
-        # Test valid OpenAI key
+    def test_api_key_storage(self, test_client):
+        """Test API key storage with any format (validation removed)."""
+        # Test traditional OpenAI key format
         payload = {"key": "OPENAI_API_KEY", "value": "sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"}
 
         response = test_client.put("/api/config/env-vars", json=payload)
         assert response.status_code == 200
 
-        # Test invalid OpenAI key format
+        # Test non-standard key format - should now succeed
         payload = {"key": "OPENAI_API_KEY", "value": "invalid-key-format"}
 
         response = test_client.put("/api/config/env-vars", json=payload)
-        assert response.status_code == 400  # Should fail validation
+        assert response.status_code == 200  # Should succeed since validation is removed
