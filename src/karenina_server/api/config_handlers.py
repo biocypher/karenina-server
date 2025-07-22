@@ -33,10 +33,6 @@ def sanitize_error_message(error: Exception) -> str:
     if "Path outside allowed directories" in error_str:
         return "Invalid file path specified"
 
-    # Don't expose detailed validation errors for security
-    if "Validation failed" in error_str:
-        return "Input validation failed"
-
     # Don't expose internal file system errors
     if any(keyword in error_str.lower() for keyword in ["permission denied", "no such file", "directory"]):
         return "File system operation failed"

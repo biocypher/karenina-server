@@ -31,7 +31,6 @@ try:
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
-    LANGCHAIN_AVAILABLE = False
 
 # Import Question Extractor functionality
 try:
