@@ -30,7 +30,6 @@ uploaded_files = {}
 
 def generate_python_questions_file(questions_data: dict[str, Any]) -> str:
     """Generate Python file content from questions data."""
-    import hashlib
 
     # Header
     content = '''"""Auto-generated questions from extracted data."""
@@ -43,15 +42,8 @@ from karenina.schemas.question_class import Question
 
     # Generate individual question objects
     question_objects = []
-    for i, (question_id, question_data) in enumerate(questions_data.items(), 1):
-        # Generate hash ID if not provided
-        if not question_id or question_id.startswith("temp_"):
-            question_text = question_data.get("question", "")
-            raw_answer = question_data.get("raw_answer", "")
-            combined = f"{question_text}{raw_answer}"
-            question_id = hashlib.md5(combined.encode()).hexdigest()
-
-        # Create question object
+    for i, (_question_id, question_data) in enumerate(questions_data.items(), 1):
+        # Create question object (ID auto-generated from question text)
         question_var = f"question_{i}"
         question_objects.append(question_var)
 
@@ -60,14 +52,13 @@ from karenina.schemas.question_class import Question
         raw_answer = repr(question_data.get("raw_answer", ""))
         tags = question_data.get("tags", [])
 
-        content += f'''{question_var} = Question(
-    id="{question_id}",
+        content += f"""{question_var} = Question(
     question={question_text},
     raw_answer={raw_answer},
     tags={tags}
 )
 
-'''
+"""
 
     # Add list of all questions
     newline_indent = ",\n    "
