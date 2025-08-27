@@ -7,8 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
-from karenina.benchmark.verifier import run_question_verification
+from karenina.benchmark.verification.orchestrator import run_question_verification
 from karenina.schemas.rubric_class import Rubric, merge_rubrics
+from karenina.utils.async_utils import AsyncConfig
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class VerificationService:
         config: VerificationConfig,
         question_ids: list[str] | None = None,
         run_name: str | None = None,
+        async_config: AsyncConfig | None = None,
     ) -> str:
         """Start a new verification job."""
         # Validate rubric availability if rubric evaluation is enabled
@@ -68,7 +70,12 @@ class VerificationService:
 
         # Create job
         job = VerificationJob(
-            job_id=job_id, run_name=run_name, status="pending", config=config, total_questions=total_combinations
+            job_id=job_id,
+            run_name=run_name,
+            status="pending",
+            config=config,
+            total_questions=total_combinations,
+            async_config=async_config,
         )
 
         self.jobs[job_id] = job
@@ -183,6 +190,7 @@ class VerificationService:
                         template_code=template.template_code,
                         config=job.config,
                         rubric=merged_rubric,
+                        async_config=job.async_config,
                     )
 
                     # Process each model combination result

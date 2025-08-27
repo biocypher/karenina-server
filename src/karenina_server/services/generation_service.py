@@ -1,5 +1,6 @@
 """Service for managing answer template generation with progress tracking."""
 
+import asyncio
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from karenina.answers.generator import generate_answer_template
+from karenina.utils.async_utils import AsyncConfig, execute_with_config
 from karenina.utils.code_parser import extract_and_combine_codeblocks
 
 if TYPE_CHECKING:
@@ -27,6 +29,7 @@ class TemplateGenerationJob:
         total_questions: int,
         custom_system_prompt: str | None = None,
         force_regenerate: bool = False,
+        async_config: AsyncConfig | None = None,
     ):
         self.job_id = job_id
         self.questions_data = questions_data
@@ -34,6 +37,7 @@ class TemplateGenerationJob:
         self.total_questions = total_questions
         self.custom_system_prompt = custom_system_prompt
         self.force_regenerate = force_regenerate
+        self.async_config = async_config or AsyncConfig.from_env()
 
         # Status tracking
         self.status = "pending"  # pending, running, completed, failed, cancelled
@@ -96,6 +100,7 @@ class GenerationService:
         config: dict[str, Any],
         custom_system_prompt: str | None = None,
         force_regenerate: bool = False,
+        async_config: AsyncConfig | None = None,
     ) -> str:
         """Start a new template generation job."""
         job_id = str(uuid.uuid4())
@@ -108,6 +113,7 @@ class GenerationService:
             total_questions=len(questions_data),
             custom_system_prompt=custom_system_prompt,
             force_regenerate=force_regenerate,
+            async_config=async_config,
         )
 
         self.jobs[job_id] = job
@@ -154,6 +160,91 @@ class GenerationService:
         for job_id in jobs_to_remove:
             del self.jobs[job_id]
 
+    def _generate_single_template(self, task: dict[str, Any]) -> dict[str, Any]:
+        """
+        Generate a single template from a task dictionary.
+
+        Args:
+            task: Dictionary containing all parameters needed for generation
+
+        Returns:
+            Dictionary containing generation result
+        """
+        question_id = task["question_id"]
+        question_data = task["question_data"]
+        model_name = task["model_name"]
+        model_provider = task["model_provider"]
+        temperature = task["temperature"]
+        interface = task["interface"]
+        custom_system_prompt = task["custom_system_prompt"]
+
+        try:
+            # Generate template using the generator
+            raw_template_response = generate_answer_template(
+                question=question_data.get("question", ""),
+                raw_answer=question_data.get("raw_answer", ""),
+                model=model_name,
+                model_provider=model_provider,
+                temperature=temperature,
+                custom_system_prompt=custom_system_prompt,
+                interface=interface,
+            )
+
+            # Extract only the Python code blocks from the LLM response
+            template_code = extract_and_combine_codeblocks(raw_template_response)
+
+            # Check if we got any code blocks
+            if not template_code.strip():
+                # If no code blocks found, use the raw response as fallback but mark as potential issue
+                template_code = raw_template_response
+                template_result = {
+                    "success": True,
+                    "template_code": template_code,
+                    "error": "Warning: No code blocks found in response",
+                    "raw_response": raw_template_response,
+                    "question_id": question_id,
+                }
+            else:
+                template_result = {
+                    "success": True,
+                    "template_code": template_code,
+                    "error": None,
+                    "raw_response": raw_template_response,
+                    "question_id": question_id,
+                }
+
+            return template_result
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "template_code": "",
+                "question_id": question_id,
+                "raw_response": "",
+            }
+
+    def _update_job_progress(self, percentage: float, message: str) -> None:
+        """Update job progress from async callback."""
+        # This will be used by the async wrapper to update progress
+        # The job object will be set before calling async execution
+        if hasattr(self, "_current_job") and self._current_job:
+            job = self._current_job
+            # Extract question info from message if available
+            if ":" in message:
+                _, question_info = message.split(":", 1)
+                job.current_question = question_info.strip()[:50] + "..."
+
+            job.percentage = percentage
+
+            # Calculate time estimates
+            if job.start_time is not None:
+                elapsed_time = time.time() - job.start_time
+                if job.processed_count > 0:
+                    avg_time_per_question = elapsed_time / job.processed_count
+                    remaining_questions = job.total_questions - job.processed_count
+                    job.estimated_time_remaining = avg_time_per_question * remaining_questions
+
     def _generate_templates(self, job: TemplateGenerationJob) -> None:
         """Generate templates for all questions in the job."""
         try:
@@ -180,53 +271,58 @@ class GenerationService:
                     model_provider = config_dict.get("model_provider", "")
                 temperature = config_dict.get("temperature", 0.1)
 
-            question_ids = list(job.questions_data.keys())
+            # Build list of all generation tasks
+            generation_tasks = []
+            for question_id, question_data in job.questions_data.items():
+                task = {
+                    "question_id": question_id,
+                    "question_data": question_data,
+                    "model_name": model_name,
+                    "model_provider": model_provider,
+                    "temperature": temperature,
+                    "interface": interface,
+                    "custom_system_prompt": job.custom_system_prompt,
+                }
+                generation_tasks.append(task)
 
-            for _i, question_id in enumerate(question_ids):
-                if job.cancelled:
-                    job.status = "cancelled"
-                    return
+            # Set current job for progress callbacks
+            self._current_job = job
+
+            if job.async_config.enabled:
+                # Async execution: chunk and parallelize
+                def progress_callback(percentage: float, message: str) -> None:
+                    self._update_job_progress(percentage, message)
 
                 try:
-                    question_data = job.questions_data[question_id]
+                    results = asyncio.run(
+                        execute_with_config(
+                            items=generation_tasks,
+                            sync_function=self._generate_single_template,
+                            config=job.async_config,
+                            progress_callback=progress_callback,
+                        )
+                    )
+                except Exception as e:
+                    job.status = "failed"
+                    job.error_message = f"Async execution failed: {str(e)}"
+                    job.end_time = time.time()
+                    return
+            else:
+                # Sync execution: simple loop (original behavior)
+                results = []
+                for _i, task in enumerate(generation_tasks):
+                    if job.cancelled:
+                        job.status = "cancelled"
+                        return
+
+                    question_data = task["question_data"]
                     job.current_question = question_data.get("question", "Unknown question")[:50] + "..."
 
-                    # Generate template using the generator
-                    raw_template_response = generate_answer_template(
-                        question=question_data.get("question", ""),
-                        raw_answer=question_data.get("raw_answer", ""),
-                        model=model_name,
-                        model_provider=model_provider,
-                        temperature=temperature,
-                        custom_system_prompt=job.custom_system_prompt,
-                        interface=interface,
-                    )
+                    result = self._generate_single_template(task)
+                    results.append(result)
 
-                    # Extract only the Python code blocks from the LLM response
-                    template_code = extract_and_combine_codeblocks(raw_template_response)
-
-                    # Check if we got any code blocks
-                    if not template_code.strip():
-                        # If no code blocks found, use the raw response as fallback but mark as potential issue
-                        template_code = raw_template_response
-                        template_result = {
-                            "success": True,
-                            "template_code": template_code,
-                            "error": "Warning: No code blocks found in response",
-                            "raw_response": raw_template_response,
-                        }
-                    else:
-                        template_result = {
-                            "success": True,
-                            "template_code": template_code,
-                            "error": None,
-                            "raw_response": raw_template_response,
-                        }
-
-                    job.results[question_id] = template_result
                     job.processed_count += 1
-
-                    if template_result.get("success", False):
+                    if result.get("success", False):
                         job.successful_count += 1
                     else:
                         job.failed_count += 1
@@ -242,11 +338,25 @@ class GenerationService:
                             remaining_questions = job.total_questions - job.processed_count
                             job.estimated_time_remaining = avg_time_per_question * remaining_questions
 
-                except Exception as e:
-                    job.results[question_id] = {"success": False, "error": str(e), "template_code": ""}
-                    job.processed_count += 1
+            # Process results and update job
+            for result in results:
+                if isinstance(result, Exception):
+                    # Handle exceptions from async execution
+                    question_id = "unknown"
+                    job.results[question_id] = {"success": False, "error": str(result), "template_code": ""}
                     job.failed_count += 1
-                    job.percentage = (job.processed_count / job.total_questions) * 100
+                else:
+                    question_id = result["question_id"]
+                    job.results[question_id] = result
+                    if not job.async_config.enabled:
+                        # Counts already updated in sync mode
+                        continue
+
+                    job.processed_count += 1
+                    if result.get("success", False):
+                        job.successful_count += 1
+                    else:
+                        job.failed_count += 1
 
             # Job completed successfully
             job.status = "completed"
@@ -268,6 +378,10 @@ class GenerationService:
             job.status = "failed"
             job.error_message = str(e)
             job.end_time = time.time()
+        finally:
+            # Clean up reference to current job
+            if hasattr(self, "_current_job"):
+                delattr(self, "_current_job")
 
     def get_progress(self, job_id: str) -> dict[str, Any] | None:
         """Get progress information for a job."""
