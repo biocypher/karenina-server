@@ -59,6 +59,13 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         question_column: str
         answer_column: str
         sheet_name: str | None = None
+        # Optional metadata column mappings
+        author_name_column: str | None = None
+        author_email_column: str | None = None
+        author_affiliation_column: str | None = None
+        url_column: str | None = None
+        keywords_column: str | None = None
+        keywords_separator: str = ","
 
     class ExtractQuestionsResponse(BaseModel):
         success: bool

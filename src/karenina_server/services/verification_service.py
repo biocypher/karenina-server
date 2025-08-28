@@ -191,6 +191,7 @@ class VerificationService:
                         config=job.config,
                         rubric=merged_rubric,
                         async_config=job.async_config,
+                        keywords=template.keywords,
                     )
 
                     # Process each model combination result

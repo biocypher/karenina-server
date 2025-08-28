@@ -150,6 +150,13 @@ def register_file_routes(
                 answer_column=request.answer_column,
                 sheet_name=request.sheet_name,
                 return_json=True,
+                # Optional metadata columns
+                author_name_column=request.author_name_column,
+                author_email_column=request.author_email_column,
+                author_affiliation_column=request.author_affiliation_column,
+                url_column=request.url_column,
+                keywords_column=request.keywords_column,
+                keywords_separator=request.keywords_separator,
             )
 
             return ExtractQuestionsResponse(
