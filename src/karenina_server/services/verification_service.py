@@ -183,6 +183,17 @@ class VerificationService:
                             # Fall back to global rubric only
                             merged_rubric = global_rubric
 
+                    # Resolve few-shot examples using FewShotConfig
+                    few_shot_examples = None
+                    few_shot_config = job.config.get_few_shot_config()
+
+                    if few_shot_config is not None and few_shot_config.enabled:
+                        few_shot_examples = few_shot_config.resolve_examples_for_question(
+                            question_id=template.question_id,
+                            available_examples=template.few_shot_examples,
+                            question_text=template.question_text,
+                        )
+
                     # Run verification for this question (returns dict of results for all model combinations)
                     question_results = run_question_verification(
                         question_id=template.question_id,
@@ -192,6 +203,7 @@ class VerificationService:
                         rubric=merged_rubric,
                         async_config=job.async_config,
                         keywords=template.keywords,
+                        few_shot_examples=few_shot_examples,
                     )
 
                     # Process each model combination result
