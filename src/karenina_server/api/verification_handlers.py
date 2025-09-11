@@ -26,15 +26,22 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         """Start verification job."""
         try:
             from karenina.benchmark.models import FinishedTemplate, VerificationConfig
+            from karenina.utils.async_utils import AsyncConfig
 
             # Parse request
             config_data = request.get("config", {})
             question_ids = request.get("question_ids")
             finished_templates_data = request.get("finished_templates", [])
             run_name = request.get("run_name")  # Optional user-defined run name
+            async_config_data = request.get("async_config")  # Optional async configuration
 
             # Create config
             config = VerificationConfig(**config_data)
+
+            # Create async config if provided, otherwise use environment defaults
+            async_config = None
+            if async_config_data:
+                async_config = AsyncConfig(**async_config_data)
 
             # Create finished templates (needed for rubric validation)
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
@@ -54,7 +61,11 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
             # Start verification
             job_id = verification_service.start_verification(
-                finished_templates=finished_templates, config=config, question_ids=question_ids, run_name=run_name
+                finished_templates=finished_templates,
+                config=config,
+                question_ids=question_ids,
+                run_name=run_name,
+                async_config=async_config,
             )
 
             # Get the job to return the actual run name (auto-generated if not provided)
