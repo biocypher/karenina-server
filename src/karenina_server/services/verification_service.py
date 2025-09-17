@@ -8,7 +8,7 @@ from typing import Any
 
 from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.benchmark.verification.orchestrator import run_question_verification
-from karenina.schemas.rubric_class import Rubric, merge_rubrics
+from karenina.schemas.rubric_class import Rubric
 from karenina.utils.async_utils import AsyncConfig
 
 # Configure logging
@@ -144,6 +144,75 @@ class VerificationService:
             logger.error(f"Failed to load rubric: {e}")
             return None
 
+    def _process_single_template(
+        self, job: VerificationJob, template: FinishedTemplate, global_rubric: Rubric | None
+    ) -> dict[str, VerificationResult]:
+        """Process a single template and return its results."""
+        if job.status == "cancelled":
+            return {}
+
+        # Update current question info
+        job.current_question = (
+            template.question_text[:50] + "..." if len(template.question_text) > 50 else template.question_text
+        )
+
+        try:
+            # Prepare rubric for this question (merge global + question-specific)
+            merged_rubric = None
+            if getattr(job.config, "rubric_enabled", False):
+                question_rubric = None
+                if template.question_rubric:
+                    # Convert dict to Rubric object
+                    try:
+                        from ..schemas.rubric_class import Rubric
+
+                        question_rubric = Rubric.model_validate(template.question_rubric)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
+
+                try:
+                    from ..schemas.rubric_class import merge_rubrics
+
+                    merged_rubric = merge_rubrics(global_rubric, question_rubric)
+                except ValueError as e:
+                    logger.error(f"Error merging rubrics for question {template.question_id}: {e}")
+                    # Fall back to global rubric only
+                    merged_rubric = global_rubric
+
+            # Resolve few-shot examples using FewShotConfig
+            few_shot_examples = None
+            few_shot_config = job.config.get_few_shot_config()
+
+            if few_shot_config is not None and few_shot_config.enabled:
+                few_shot_examples = few_shot_config.resolve_examples_for_question(
+                    question_id=template.question_id,
+                    available_examples=template.few_shot_examples,
+                    question_text=template.question_text,
+                )
+
+            # Run verification for this question (returns dict of results for all model combinations)
+            question_results = run_question_verification(
+                question_id=template.question_id,
+                question_text=template.question_text,
+                template_code=template.template_code,
+                config=job.config,
+                rubric=merged_rubric,
+                async_config=job.async_config,
+                keywords=template.keywords,
+                few_shot_examples=few_shot_examples,
+            )
+
+            # Add run metadata to each result
+            for _combination_id, result in question_results.items():
+                result.run_name = job.run_name
+                result.job_id = job.job_id
+
+            return question_results  # type: ignore[no-any-return]
+
+        except Exception as e:
+            # Create error results for all model combinations
+            return self._create_error_results_for_template(job, template, e)
+
     def _run_verification(self, job: VerificationJob, templates: list[FinishedTemplate]) -> None:
         """Run verification for all templates in the job."""
         try:
@@ -155,174 +224,114 @@ class VerificationService:
             if getattr(job.config, "rubric_enabled", False):
                 global_rubric = self._load_current_rubric()
 
-            for _i, template in enumerate(templates):
-                if job.status == "cancelled":
-                    return
+            # Check if we should use async processing for multiple templates
+            if job.async_config and job.async_config.enabled and len(templates) > 1:
+                # Process templates in parallel
+                self._run_verification_async(job, templates, global_rubric)
+            else:
+                # Process templates sequentially (original behavior)
+                self._run_verification_sync(job, templates, global_rubric)
 
-                # Update current question info
-                job.current_question = (
-                    template.question_text[:50] + "..." if len(template.question_text) > 50 else template.question_text
-                )
+        except Exception as e:
+            logger.error(f"Verification job failed: {e}")
+            job.status = "failed"
+            job.error_message = str(e)
+            job.end_time = time.time()
 
+    def _run_verification_sync(
+        self, job: VerificationJob, templates: list[FinishedTemplate], global_rubric: Rubric | None
+    ) -> None:
+        """Run verification synchronously (original behavior)."""
+        for template in templates:
+            if job.status == "cancelled":
+                return
+
+            # Process this template and get its results
+            question_results = self._process_single_template(job, template, global_rubric)
+
+            # Process each model combination result
+            for combination_id, result in question_results.items():
+                job.results[combination_id] = result
+                job.processed_count += 1
+
+                if result.success:
+                    job.successful_count += 1
+                else:
+                    job.failed_count += 1
+
+            # Update progress
+            job.percentage = (job.processed_count / job.total_questions) * 100
+
+            # Calculate time estimates
+            if job.processed_count > 0:
+                elapsed_time = time.time() - job.start_time
+                avg_time_per_question = elapsed_time / job.processed_count
+                remaining_questions = job.total_questions - job.processed_count
+                job.estimated_time_remaining = avg_time_per_question * remaining_questions
+
+        # Job completed successfully
+        job.status = "completed"
+        job.end_time = time.time()
+        job.percentage = 100.0
+
+        # Store results in historical collection
+        self.historical_results[job.job_id] = job.results.copy()
+
+    def _run_verification_async(
+        self, job: VerificationJob, templates: list[FinishedTemplate], global_rubric: Rubric | None
+    ) -> None:
+        """Run verification asynchronously for multiple templates in parallel."""
+        import asyncio
+
+        from karenina.utils.async_utils import execute_with_config
+
+        def process_template_wrapper(template: FinishedTemplate) -> dict[str, VerificationResult]:
+            """Wrapper function for async processing."""
+            return self._process_single_template(job, template, global_rubric)
+
+        def update_progress(percentage: float, message: str) -> None:
+            """Progress callback for async processing."""
+            job.percentage = percentage
+            # Extract processed count from message if available
+            if "Processed" in message and "/" in message:
                 try:
-                    # Prepare rubric for this question (merge global + question-specific)
-                    merged_rubric = None
-                    if getattr(job.config, "rubric_enabled", False):
-                        question_rubric = None
-                        if template.question_rubric:
-                            # Convert dict to Rubric object
-                            try:
-                                question_rubric = Rubric.model_validate(template.question_rubric)
-                            except Exception as e:
-                                logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
+                    processed_str = message.split("Processed ")[1].split("/")[0]
+                    processed_count = int(processed_str)
+                    job.processed_count = processed_count
+                except (ValueError, IndexError):
+                    pass
 
-                        try:
-                            merged_rubric = merge_rubrics(global_rubric, question_rubric)
-                        except ValueError as e:
-                            logger.error(f"Error merging rubrics for question {template.question_id}: {e}")
-                            # Fall back to global rubric only
-                            merged_rubric = global_rubric
+        try:
+            # Run templates in parallel using async utilities
+            template_results = asyncio.run(
+                execute_with_config(
+                    items=templates,
+                    sync_function=process_template_wrapper,
+                    config=job.async_config,
+                    progress_callback=update_progress,
+                )
+            )
 
-                    # Resolve few-shot examples using FewShotConfig
-                    few_shot_examples = None
-                    few_shot_config = job.config.get_few_shot_config()
+            # Process all results
+            for _i, question_results in enumerate(template_results):
+                if isinstance(question_results, Exception):
+                    # Handle async execution error
+                    logger.error(f"Template processing failed: {question_results}")
+                    continue
 
-                    if few_shot_config is not None and few_shot_config.enabled:
-                        few_shot_examples = few_shot_config.resolve_examples_for_question(
-                            question_id=template.question_id,
-                            available_examples=template.few_shot_examples,
-                            question_text=template.question_text,
-                        )
+                # Process each model combination result for this template
+                for combination_id, result in question_results.items():
+                    job.results[combination_id] = result
 
-                    # Run verification for this question (returns dict of results for all model combinations)
-                    question_results = run_question_verification(
-                        question_id=template.question_id,
-                        question_text=template.question_text,
-                        template_code=template.template_code,
-                        config=job.config,
-                        rubric=merged_rubric,
-                        async_config=job.async_config,
-                        keywords=template.keywords,
-                        few_shot_examples=few_shot_examples,
-                    )
-
-                    # Process each model combination result
-                    for combination_id, result in question_results.items():
-                        # Add run metadata to result
-                        result.run_name = job.run_name
-                        result.job_id = job.job_id
-
-                        job.results[combination_id] = result
-                        job.processed_count += 1
-
-                        if result.success:
-                            job.successful_count += 1
-                        else:
-                            job.failed_count += 1
-
-                    # Update progress
-                    job.percentage = (job.processed_count / job.total_questions) * 100
-
-                    # Calculate time estimates
-                    if job.processed_count > 0:
-                        elapsed_time = time.time() - job.start_time
-                        avg_time_per_question = elapsed_time / job.processed_count
-                        remaining_questions = job.total_questions - job.processed_count
-                        job.estimated_time_remaining = avg_time_per_question * remaining_questions
-
-                except Exception as e:
-                    # Create error results for all model combinations
-                    from datetime import datetime
-
-                    # Handle legacy config vs new multi-model config
-                    if hasattr(job.config, "answering_models") and job.config.answering_models:
-                        # Multi-model config - create error for each combination including replicates
-                        for answering_model in job.config.answering_models:
-                            for parsing_model in job.config.parsing_models:
-                                # Create errors for all replicates
-                                for replicate in range(1, job.config.replicate_count + 1):
-                                    # For single replicate, don't include replicate numbers
-                                    if job.config.replicate_count == 1:
-                                        combination_id = (
-                                            f"{template.question_id}_{answering_model.id}_{parsing_model.id}"
-                                        )
-                                        answering_replicate = None
-                                        parsing_replicate = None
-                                    else:
-                                        # For multiple replicates, include replicate number in ID and track separately
-                                        combination_id = f"{template.question_id}_{answering_model.id}_{parsing_model.id}_rep{replicate}"
-                                        answering_replicate = replicate
-                                        parsing_replicate = replicate
-
-                                    # For OpenRouter interface, don't include provider in the model string
-                                    if answering_model.interface == "openrouter":
-                                        answering_model_str = answering_model.model_name
-                                    else:
-                                        answering_model_str = (
-                                            f"{answering_model.model_provider}/{answering_model.model_name}"
-                                        )
-
-                                    if parsing_model.interface == "openrouter":
-                                        parsing_model_str = parsing_model.model_name
-                                    else:
-                                        parsing_model_str = f"{parsing_model.model_provider}/{parsing_model.model_name}"
-
-                                    error_result = VerificationResult(
-                                        question_id=template.question_id,
-                                        success=False,
-                                        error=f"Verification error: {e!s}",
-                                        question_text=template.question_text,
-                                        raw_llm_response="",
-                                        answering_model=answering_model_str,
-                                        parsing_model=parsing_model_str,
-                                        execution_time=0.0,
-                                        timestamp=datetime.now().isoformat(),
-                                        answering_system_prompt=answering_model.system_prompt,
-                                        parsing_system_prompt=parsing_model.system_prompt,
-                                        run_name=job.run_name,
-                                        job_id=job.job_id,
-                                        answering_replicate=answering_replicate,
-                                        parsing_replicate=parsing_replicate,
-                                    )
-                                    job.results[combination_id] = error_result
-                                    job.processed_count += 1
-                                    job.failed_count += 1
+                    if result.success:
+                        job.successful_count += 1
                     else:
-                        # Legacy single model config - handle replicates
-                        for replicate in range(1, getattr(job.config, "replicate_count", 1) + 1):
-                            # For single replicate, don't include replicate numbers
-                            if getattr(job.config, "replicate_count", 1) == 1:
-                                combination_id = template.question_id
-                                answering_replicate = None
-                                parsing_replicate = None
-                            else:
-                                # For multiple replicates, include replicate number in ID and track separately
-                                combination_id = f"{template.question_id}_rep{replicate}"
-                                answering_replicate = replicate
-                                parsing_replicate = replicate
+                        job.failed_count += 1
 
-                            error_result = VerificationResult(
-                                question_id=template.question_id,
-                                success=False,
-                                error=f"Verification error: {e!s}",
-                                question_text=template.question_text,
-                                raw_llm_response="",
-                                answering_model=f"{job.config.answering_model_provider or 'unknown'}/{job.config.answering_model_name or 'unknown'}",
-                                parsing_model=f"{job.config.parsing_model_provider or 'unknown'}/{job.config.parsing_model_name or 'unknown'}",
-                                execution_time=0.0,
-                                timestamp=datetime.now().isoformat(),
-                                answering_system_prompt=job.config.answering_system_prompt,
-                                parsing_system_prompt=job.config.parsing_system_prompt,
-                                run_name=job.run_name,
-                                job_id=job.job_id,
-                                answering_replicate=answering_replicate,
-                                parsing_replicate=parsing_replicate,
-                            )
-                            job.results[combination_id] = error_result
-                            job.processed_count += 1
-                            job.failed_count += 1
-
-                    job.percentage = (job.processed_count / job.total_questions) * 100
+            # Ensure processed count is accurate
+            job.processed_count = sum(
+                len(results) if not isinstance(results, Exception) else 0 for results in template_results
+            )
 
             # Job completed successfully
             job.status = "completed"
@@ -333,10 +342,102 @@ class VerificationService:
             self.historical_results[job.job_id] = job.results.copy()
 
         except Exception as e:
-            logger.error(f"Verification job failed: {e}")
-            job.status = "failed"
-            job.error_message = str(e)
-            job.end_time = time.time()
+            logger.error(f"Async verification failed: {e}")
+            # Fall back to sync processing
+            logger.info("Falling back to synchronous processing")
+            self._run_verification_sync(job, templates, global_rubric)
+
+    def _create_error_results_for_template(
+        self, job: VerificationJob, template: FinishedTemplate, error: Exception
+    ) -> dict[str, VerificationResult]:
+        """Create error results for all model combinations of a template."""
+        from datetime import datetime
+
+        error_results = {}
+
+        # Handle legacy config vs new multi-model config
+        if hasattr(job.config, "answering_models") and job.config.answering_models:
+            # Multi-model config - create error for each combination including replicates
+            for answering_model in job.config.answering_models:
+                for parsing_model in job.config.parsing_models:
+                    # Create errors for all replicates
+                    for replicate in range(1, job.config.replicate_count + 1):
+                        # For single replicate, don't include replicate numbers
+                        if job.config.replicate_count == 1:
+                            combination_id = f"{template.question_id}_{answering_model.id}_{parsing_model.id}"
+                            answering_replicate = None
+                            parsing_replicate = None
+                        else:
+                            # For multiple replicates, include replicate number in ID and track separately
+                            combination_id = (
+                                f"{template.question_id}_{answering_model.id}_{parsing_model.id}_rep{replicate}"
+                            )
+                            answering_replicate = replicate
+                            parsing_replicate = replicate
+
+                        # For OpenRouter interface, don't include provider in the model string
+                        if answering_model.interface == "openrouter":
+                            answering_model_str = answering_model.model_name
+                        else:
+                            answering_model_str = f"{answering_model.model_provider}/{answering_model.model_name}"
+
+                        if parsing_model.interface == "openrouter":
+                            parsing_model_str = parsing_model.model_name
+                        else:
+                            parsing_model_str = f"{parsing_model.model_provider}/{parsing_model.model_name}"
+
+                        error_result = VerificationResult(
+                            question_id=template.question_id,
+                            success=False,
+                            error=f"Verification error: {error!s}",
+                            question_text=template.question_text,
+                            raw_llm_response="",
+                            answering_model=answering_model_str,
+                            parsing_model=parsing_model_str,
+                            execution_time=0.0,
+                            timestamp=datetime.now().isoformat(),
+                            answering_system_prompt=answering_model.system_prompt,
+                            parsing_system_prompt=parsing_model.system_prompt,
+                            run_name=job.run_name,
+                            job_id=job.job_id,
+                            answering_replicate=answering_replicate,
+                            parsing_replicate=parsing_replicate,
+                        )
+                        error_results[combination_id] = error_result
+        else:
+            # Legacy single model config - handle replicates
+            for replicate in range(1, getattr(job.config, "replicate_count", 1) + 1):
+                # For single replicate, don't include replicate numbers
+                if getattr(job.config, "replicate_count", 1) == 1:
+                    combination_id = template.question_id
+                    answering_replicate = None
+                    parsing_replicate = None
+                else:
+                    # For multiple replicates, include replicate number in ID and track separately
+                    combination_id = f"{template.question_id}_rep{replicate}"
+                    answering_replicate = replicate
+                    parsing_replicate = replicate
+
+                error_result = VerificationResult(
+                    question_id=template.question_id,
+                    success=False,
+                    error=f"Verification error: {error!s}",
+                    question_text=template.question_text,
+                    raw_llm_response="",
+                    answering_model=f"{job.config.answering_model_provider or 'unknown'}/{job.config.answering_model_name or 'unknown'}",
+                    parsing_model=f"{job.config.parsing_model_provider or 'unknown'}/{job.config.parsing_model_name or 'unknown'}",
+                    execution_time=0.0,
+                    timestamp=datetime.now().isoformat(),
+                    answering_system_prompt=job.config.answering_system_prompt,
+                    parsing_system_prompt=job.config.parsing_system_prompt,
+                    run_name=job.run_name,
+                    job_id=job.job_id,
+                    answering_replicate=answering_replicate,
+                    parsing_replicate=parsing_replicate,
+                )
+                error_results[combination_id] = error_result
+
+        return error_results
 
     def get_progress(self, job_id: str) -> dict[str, Any] | None:
         """Get progress information for a job."""
