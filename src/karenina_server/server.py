@@ -83,7 +83,6 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
     class TemplateGenerationRequest(BaseModel):
         questions: dict[str, Any]
         config: TemplateGenerationConfig
-        custom_system_prompt: str | None = None
         force_regenerate: bool = False
 
     class TemplateGenerationResponse(BaseModel):
