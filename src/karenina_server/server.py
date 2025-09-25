@@ -101,6 +101,20 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         error: str | None = None
         result: dict[str, Any] | None = None
 
+    # MCP Validation API Models
+    class MCPTool(BaseModel):
+        name: str
+        description: str | None = None
+
+    class MCPValidationRequest(BaseModel):
+        server_name: str
+        server_url: str
+
+    class MCPValidationResponse(BaseModel):
+        success: bool
+        tools: list[MCPTool] | None = None
+        error: str | None = None
+
 else:
     # Fallback classes for when FastAPI is not available
     FilePreviewResponse = None  # type: ignore[misc,assignment]
@@ -109,6 +123,9 @@ else:
     TemplateGenerationRequest = None  # type: ignore[misc,assignment]
     TemplateGenerationResponse = None  # type: ignore[misc,assignment]
     TemplateGenerationStatusResponse = None  # type: ignore[misc,assignment]
+    MCPTool = None  # type: ignore[misc,assignment]
+    MCPValidationRequest = None  # type: ignore[misc,assignment]
+    MCPValidationResponse = None  # type: ignore[misc,assignment]
 
 
 # Global verification service instance
@@ -365,6 +382,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     from .api.config_handlers import router as config_router
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
+    from .api.mcp_handlers import register_mcp_routes
     from .api.rubric_handlers import router as rubric_router
     from .api.verification_handlers import register_verification_routes
 
@@ -374,6 +392,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     register_generation_routes(
         app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
     )
+    register_mcp_routes(app, MCPValidationRequest, MCPValidationResponse)
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
 
