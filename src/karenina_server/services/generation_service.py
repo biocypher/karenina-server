@@ -27,7 +27,6 @@ class TemplateGenerationJob:
         questions_data: dict[str, Any],
         config: ConfigType,
         total_questions: int,
-        custom_system_prompt: str | None = None,
         force_regenerate: bool = False,
         async_config: AsyncConfig | None = None,
     ):
@@ -35,7 +34,6 @@ class TemplateGenerationJob:
         self.questions_data = questions_data
         self.config = config
         self.total_questions = total_questions
-        self.custom_system_prompt = custom_system_prompt
         self.force_regenerate = force_regenerate
         self.async_config = async_config or AsyncConfig.from_env()
 
@@ -98,7 +96,6 @@ class GenerationService:
         self,
         questions_data: dict[str, Any],
         config: dict[str, Any],
-        custom_system_prompt: str | None = None,
         force_regenerate: bool = False,
         async_config: AsyncConfig | None = None,
     ) -> str:
@@ -111,7 +108,6 @@ class GenerationService:
             questions_data=questions_data,
             config=config,
             total_questions=len(questions_data),
-            custom_system_prompt=custom_system_prompt,
             force_regenerate=force_regenerate,
             async_config=async_config,
         )
@@ -176,17 +172,15 @@ class GenerationService:
         model_provider = task["model_provider"]
         temperature = task["temperature"]
         interface = task["interface"]
-        custom_system_prompt = task["custom_system_prompt"]
 
         try:
-            # Generate template using the generator
+            # Generate template using the structured generator
             raw_template_response = generate_answer_template(
                 question=question_data.get("question", ""),
                 raw_answer=question_data.get("raw_answer", ""),
                 model=model_name,
                 model_provider=model_provider,
                 temperature=temperature,
-                custom_system_prompt=custom_system_prompt,
                 interface=interface,
             )
 
@@ -281,7 +275,6 @@ class GenerationService:
                     "model_provider": model_provider,
                     "temperature": temperature,
                     "interface": interface,
-                    "custom_system_prompt": job.custom_system_prompt,
                 }
                 generation_tasks.append(task)
 

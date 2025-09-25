@@ -1,5 +1,5 @@
 """
-API handlers for rubric management and trait generation.
+API handlers for rubric management.
 """
 
 from typing import Any
@@ -237,7 +237,8 @@ I have analyzed the question-answer and ....
 
 def _build_rubric_generation_prompt(questions: list[Question], user_suggestions: list[str] | None) -> str:
     """Build the user prompt for rubric trait generation."""
-    user_prompt = """<question_answer_pairs>\n"""
+    user_prompt = """<question_answer_pairs>
+"""
 
     # Add question context
     for i, question in enumerate(questions, 1):

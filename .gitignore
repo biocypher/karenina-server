@@ -124,6 +124,7 @@ Thumbs.db
 .env.*.local
 uploaded_files/
 temp/
+src/karenina_server/webapp/
 
 #internal instructions
 RELEASE.md

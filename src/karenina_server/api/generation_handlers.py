@@ -32,7 +32,6 @@ def register_generation_routes(
             job_id = generation_service.start_generation(
                 questions_data=request.questions,
                 config=request.config,
-                custom_system_prompt=request.custom_system_prompt,
                 force_regenerate=getattr(request, "force_regenerate", False),
             )
 
