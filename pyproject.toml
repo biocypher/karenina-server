@@ -146,6 +146,7 @@ karenina = { path = "../karenina", editable = true }
 dev = [
     "build>=1.2.2.post1",
     "deptree>=0.0.12",
+    "pre-commit>=4.2.0",
     "pytest-testmon>=2.1.3",
     "python-semantic-release>=10.1.0",
     "twine>=6.1.0",
