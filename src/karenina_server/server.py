@@ -382,6 +382,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     from .api.config_handlers import router as config_router
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
+    from .api.health_handlers import router as health_router
     from .api.mcp_handlers import register_mcp_routes
     from .api.rubric_handlers import router as rubric_router
     from .api.verification_handlers import register_verification_routes
@@ -393,6 +394,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
     )
     register_mcp_routes(app, MCPValidationRequest, MCPValidationResponse)
+    app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
 

@@ -1164,6 +1164,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.8.0" },
     { name = "anthropic", specifier = ">=0.18.0" },
     { name = "httpx", specifier = ">=0.24.0" },
+    { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "langchain", specifier = ">=0.3.26" },
     { name = "langchain-anthropic", specifier = ">=0.3.15" },
     { name = "langchain-core", specifier = ">=0.3.66" },
@@ -1196,6 +1197,7 @@ requires-dist = [
 dev = [
     { name = "build", specifier = ">=1.2.2.post1" },
     { name = "deptree", specifier = ">=0.0.12" },
+    { name = "ipython", specifier = ">=9.6.0" },
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-material", specifier = ">=9.6.14" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29.1" },
