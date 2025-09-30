@@ -164,14 +164,12 @@ class VerificationService:
                 if template.question_rubric:
                     # Convert dict to Rubric object
                     try:
-                        from ..schemas.rubric_class import Rubric
-
                         question_rubric = Rubric.model_validate(template.question_rubric)
                     except Exception as e:
                         logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
 
                 try:
-                    from ..schemas.rubric_class import merge_rubrics
+                    from karenina.schemas.rubric_class import merge_rubrics
 
                     merged_rubric = merge_rubrics(global_rubric, question_rubric)
                 except ValueError as e:
