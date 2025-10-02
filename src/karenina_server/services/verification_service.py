@@ -468,7 +468,6 @@ class VerificationService:
 
         try:
             from karenina.benchmark import Benchmark
-            from karenina.schemas.question_class import Question
             from karenina.storage import DBConfig, get_benchmark_summary, save_benchmark, save_verification_results
 
             # Create database config
@@ -488,12 +487,13 @@ class VerificationService:
 
                 # Add questions from templates
                 for template in templates:
-                    question = Question(
+                    # Add question using text format to ensure question_id is preserved
+                    benchmark.add_question(
                         question=template.question_text,
-                        raw_answer="[Placeholder - see template]",  # Placeholder for verification results
-                        tags=template.keywords or [],
+                        raw_answer="[Placeholder - see template]",
+                        answer_template=template.template_code,
+                        question_id=template.question_id,  # Explicitly set question_id to match template
                     )
-                    benchmark.add_question(question, answer_template=template.template_code)
 
                 # Save benchmark to database
                 save_benchmark(benchmark, db_config)
