@@ -66,7 +66,7 @@ def register_database_routes(
             # Extract benchmark information
             benchmarks = [
                 {
-                    "id": summary["benchmark_id"],
+                    "id": str(summary["benchmark_id"]),
                     "name": summary["benchmark_name"],
                     "total_questions": summary["total_questions"],
                     "finished_count": summary.get("finished_count", 0),
@@ -106,13 +106,21 @@ def register_database_routes(
                 }
 
             # Create checkpoint-like response
+            # Convert created_at to string if it's a datetime object
+            created_at_str = ""
+            if hasattr(benchmark, "created_at") and benchmark.created_at:
+                if hasattr(benchmark.created_at, "isoformat"):
+                    created_at_str = benchmark.created_at.isoformat()
+                else:
+                    created_at_str = str(benchmark.created_at)
+
             checkpoint_data = {
                 "dataset_metadata": {
                     "name": benchmark.name,
                     "description": benchmark.description or "",
                     "version": benchmark.version,
                     "creator": benchmark.creator or "",
-                    "created_at": benchmark.created_at.isoformat() if hasattr(benchmark, "created_at") else "",
+                    "created_at": created_at_str,
                 },
                 "questions": questions_data,
                 "global_rubric": benchmark.global_rubric if hasattr(benchmark, "global_rubric") else None,
@@ -132,16 +140,22 @@ def register_database_routes(
             raise HTTPException(status_code=500, detail=f"Error loading benchmark: {e!s}") from e
 
     @app.post("/api/database/init")  # type: ignore[misc]
-    async def init_database_endpoint(storage_url: str) -> dict[str, Any]:
+    async def init_database_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Initialize a new database."""
         if not STORAGE_AVAILABLE:
             raise HTTPException(status_code=500, detail="Storage functionality not available")
 
         try:
+            storage_url = request.get("storage_url")
+            if not storage_url:
+                raise HTTPException(status_code=400, detail="storage_url is required")
+
             db_config = DBConfig(storage_url=storage_url)
             init_database(db_config)
 
             return {"success": True, "storage_url": storage_url, "message": "Database initialized successfully"}
 
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error initializing database: {e!s}") from e

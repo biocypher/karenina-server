@@ -35,6 +35,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             run_name = request.get("run_name")  # Optional user-defined run name
             async_config_data = request.get("async_config")  # Optional async configuration
             storage_url = request.get("storage_url")  # Optional database URL for auto-save
+            benchmark_name = request.get("benchmark_name")  # Optional benchmark name for auto-save
 
             # Create config
             config = VerificationConfig(**config_data)
@@ -68,6 +69,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 run_name=run_name,
                 async_config=async_config,
                 storage_url=storage_url,  # Pass storage URL for auto-save
+                benchmark_name=benchmark_name,  # Pass benchmark name for auto-save
             )
 
             # Get the job to return the actual run name (auto-generated if not provided)

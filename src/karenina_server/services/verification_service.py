@@ -33,6 +33,7 @@ class VerificationService:
         run_name: str | None = None,
         async_config: AsyncConfig | None = None,
         storage_url: str | None = None,
+        benchmark_name: str | None = None,
     ) -> str:
         """Start a new verification job."""
         # Validate rubric availability if rubric evaluation is enabled
@@ -78,6 +79,7 @@ class VerificationService:
             total_questions=total_combinations,
             async_config=async_config,
             storage_url=storage_url,  # Store for auto-save
+            benchmark_name=benchmark_name,  # Store benchmark name for auto-save
         )
 
         self.jobs[job_id] = job
@@ -460,37 +462,55 @@ class VerificationService:
             logger.debug("No storage URL provided, skipping database auto-save")
             return
 
+        if not job.benchmark_name:
+            logger.warning("No benchmark name provided, cannot auto-save results")
+            return
+
         try:
             from karenina.benchmark import Benchmark
-            from karenina.storage import DBConfig, save_verification_results
+            from karenina.schemas.question_class import Question
+            from karenina.storage import DBConfig, get_benchmark_summary, save_benchmark, save_verification_results
 
             # Create database config
             db_config = DBConfig(storage_url=job.storage_url)
 
-            # Build benchmark from templates
-            benchmark = Benchmark.create(
-                name=job.run_name,  # Use run name as benchmark name
-                description=f"Verification run: {job.run_name}",
-                version="1.0.0",
-            )
+            # Check if benchmark already exists
+            existing_benchmarks = get_benchmark_summary(db_config, benchmark_name=job.benchmark_name)
 
-            # Add questions from templates
-            for template in templates:
-                from karenina.schemas.question_class import Question
-
-                question = Question(
-                    question=template.question_text,
-                    raw_answer="",  # Not needed for verification results
-                    tags=template.keywords or [],
+            if not existing_benchmarks:
+                # Benchmark doesn't exist, create it
+                logger.info(f"Creating new benchmark '{job.benchmark_name}' in database")
+                benchmark = Benchmark.create(
+                    name=job.benchmark_name,
+                    description=f"Auto-created for verification run: {job.run_name}",
+                    version="1.0.0",
                 )
-                benchmark.add_question(question, answer_template=template.template_code)
 
-            # Save verification results to database
+                # Add questions from templates
+                for template in templates:
+                    question = Question(
+                        question=template.question_text,
+                        raw_answer="[Placeholder - see template]",  # Placeholder for verification results
+                        tags=template.keywords or [],
+                    )
+                    benchmark.add_question(question, answer_template=template.template_code)
+
+                # Save benchmark to database
+                save_benchmark(benchmark, db_config)
+
+            # Save verification results (job.results is already in the correct format)
             save_verification_results(
-                benchmark=benchmark, results=list(job.results.values()), db_config=db_config, run_name=job.run_name
+                results=job.results,
+                db_config=db_config,
+                run_id=job.job_id,
+                benchmark_name=job.benchmark_name,
+                run_name=job.run_name,
+                config=job.config.model_dump(),
             )
 
-            logger.info(f"Auto-saved verification results to database: {job.storage_url}")
+            logger.info(
+                f"Auto-saved verification results to database: {job.storage_url} (benchmark: {job.benchmark_name})"
+            )
 
         except Exception as e:
             # Don't fail the verification job if auto-save fails
