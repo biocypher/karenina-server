@@ -100,6 +100,9 @@ class TestAutoSaveEnabled:
 
             assert service.jobs[job_id].status == "completed"
 
+            # Give extra time for database transactions to complete
+            time.sleep(0.2)
+
             # Verify results were saved to database
             from karenina.storage import DBConfig, get_verification_run_summary
 
@@ -149,6 +152,9 @@ class TestAutoSaveEnabled:
             while service.jobs[job_id].status != "completed" and waited < max_wait:
                 time.sleep(0.1)
                 waited += 0.1
+
+            # Give extra time for database transactions to complete
+            time.sleep(0.2)
 
             # Check that benchmark was created
             from karenina.storage import DBConfig, get_benchmark_summary
