@@ -115,6 +115,43 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         tools: list[MCPTool] | None = None
         error: str | None = None
 
+    # Database Management API Models
+    class DatabaseConnectRequest(BaseModel):
+        storage_url: str
+        create_if_missing: bool = True
+
+    class DatabaseConnectResponse(BaseModel):
+        success: bool
+        storage_url: str
+        benchmark_count: int
+        message: str
+        error: str | None = None
+
+    class BenchmarkInfo(BaseModel):
+        id: str
+        name: str
+        total_questions: int
+        finished_count: int
+        unfinished_count: int
+
+    class BenchmarkListResponse(BaseModel):
+        success: bool
+        benchmarks: list[BenchmarkInfo]
+        count: int
+        error: str | None = None
+
+    class BenchmarkLoadRequest(BaseModel):
+        storage_url: str
+        benchmark_name: str
+
+    class BenchmarkLoadResponse(BaseModel):
+        success: bool
+        benchmark_name: str
+        checkpoint_data: dict[str, Any]
+        storage_url: str
+        message: str
+        error: str | None = None
+
 else:
     # Fallback classes for when FastAPI is not available
     FilePreviewResponse = None  # type: ignore[misc,assignment]
@@ -126,6 +163,12 @@ else:
     MCPTool = None  # type: ignore[misc,assignment]
     MCPValidationRequest = None  # type: ignore[misc,assignment]
     MCPValidationResponse = None  # type: ignore[misc,assignment]
+    DatabaseConnectRequest = None  # type: ignore[misc,assignment]
+    DatabaseConnectResponse = None  # type: ignore[misc,assignment]
+    BenchmarkInfo = None  # type: ignore[misc,assignment]
+    BenchmarkListResponse = None  # type: ignore[misc,assignment]
+    BenchmarkLoadRequest = None  # type: ignore[misc,assignment]
+    BenchmarkLoadResponse = None  # type: ignore[misc,assignment]
 
 
 # Global verification service instance
@@ -380,6 +423,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
 
     # Register API routes from extracted handlers
     from .api.config_handlers import router as config_router
+    from .api.database_handlers import register_database_routes
     from .api.file_handlers import register_file_routes
     from .api.generation_handlers import register_generation_routes
     from .api.health_handlers import router as health_router
@@ -394,6 +438,14 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
     )
     register_mcp_routes(app, MCPValidationRequest, MCPValidationResponse)
+    register_database_routes(
+        app,
+        DatabaseConnectRequest,
+        DatabaseConnectResponse,
+        BenchmarkListResponse,
+        BenchmarkLoadRequest,
+        BenchmarkLoadResponse,
+    )
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
