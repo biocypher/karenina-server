@@ -1,5 +1,7 @@
 """Database management API handlers."""
 
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -23,6 +25,7 @@ def register_database_routes(
     BenchmarkCreateResponse: Any,
     BenchmarkSaveRequest: Any,
     BenchmarkSaveResponse: Any,
+    ListDatabasesResponse: Any,
 ) -> None:
     """Register database management routes."""
 
@@ -320,3 +323,42 @@ def register_database_routes(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error initializing database: {e!s}") from e
+
+    @app.get("/api/database/list-databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
+    async def list_databases_endpoint() -> ListDatabasesResponse:
+        """List all .db files in the DB_PATH directory."""
+        try:
+            # Get DB_PATH from environment, default to current working directory
+            db_path = os.environ.get("DB_PATH")
+            is_default = db_path is None
+            db_directory = Path(db_path if db_path else os.getcwd())
+
+            # Ensure directory exists
+            if not db_directory.exists():
+                raise HTTPException(status_code=404, detail=f"Database directory not found: {db_directory.absolute()}")
+
+            # Find all .db files
+            databases = []
+            for db_file in db_directory.glob("*.db"):
+                if db_file.is_file():
+                    try:
+                        size = db_file.stat().st_size
+                    except Exception:
+                        size = None
+
+                    databases.append({"name": db_file.name, "path": str(db_file.absolute()), "size": size})
+
+            # Sort by name
+            databases.sort(key=lambda x: x["name"] or "")
+
+            return ListDatabasesResponse(
+                success=True,
+                databases=databases,
+                db_directory=str(db_directory.absolute()),
+                is_default_directory=is_default,
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e

@@ -37,6 +37,7 @@ def mock_app():
         BenchmarkSaveResponse,
         DatabaseConnectRequest,
         DatabaseConnectResponse,
+        ListDatabasesResponse,
     )
 
     register_database_routes(
@@ -50,6 +51,7 @@ def mock_app():
         BenchmarkCreateResponse,
         BenchmarkSaveRequest,
         BenchmarkSaveResponse,
+        ListDatabasesResponse,
     )
 
     return app
@@ -511,3 +513,148 @@ class TestSaveBenchmark:
         )
 
         assert response.status_code == 500
+
+
+class TestListDatabases:
+    """Test database listing endpoint."""
+
+    def test_list_databases_with_db_path_env(self, client, monkeypatch):
+        """Test listing databases from DB_PATH environment variable."""
+        # Create temporary directory with some .db files
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create some test .db files
+            db1_path = Path(tmpdir) / "test1.db"
+            db2_path = Path(tmpdir) / "test2.db"
+            db1_path.touch()
+            db2_path.touch()
+
+            # Set DB_PATH environment variable
+            monkeypatch.setenv("DB_PATH", tmpdir)
+
+            response = client.get("/api/database/list-databases")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["db_directory"] == tmpdir
+            assert data["is_default_directory"] is False
+            assert len(data["databases"]) == 2
+
+            # Check database names
+            db_names = {db["name"] for db in data["databases"]}
+            assert "test1.db" in db_names
+            assert "test2.db" in db_names
+
+            # Check that paths are absolute
+            for db in data["databases"]:
+                assert db["path"].startswith(tmpdir)
+
+    def test_list_databases_uses_cwd_by_default(self, client, monkeypatch):
+        """Test listing databases from current working directory when DB_PATH not set."""
+        import os
+
+        # Ensure DB_PATH is not set
+        monkeypatch.delenv("DB_PATH", raising=False)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Change to temp directory
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+
+                # Create a test .db file
+                db_path = Path(tmpdir) / "default.db"
+                db_path.touch()
+
+                response = client.get("/api/database/list-databases")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+                # Compare resolved paths to handle symlinks (e.g., /var -> /private/var on macOS)
+                assert Path(data["db_directory"]).resolve() == Path(tmpdir).resolve()
+                assert data["is_default_directory"] is True
+                assert len(data["databases"]) == 1
+                assert data["databases"][0]["name"] == "default.db"
+            finally:
+                os.chdir(original_cwd)
+
+    def test_list_databases_empty_directory(self, client, monkeypatch):
+        """Test listing databases from empty directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            monkeypatch.setenv("DB_PATH", tmpdir)
+
+            response = client.get("/api/database/list-databases")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["db_directory"] == tmpdir
+            assert len(data["databases"]) == 0
+
+    def test_list_databases_filters_only_db_files(self, client, monkeypatch):
+        """Test that only .db files are listed."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create various files
+            (Path(tmpdir) / "test.db").touch()
+            (Path(tmpdir) / "other.txt").touch()
+            (Path(tmpdir) / "data.json").touch()
+            (Path(tmpdir) / "another.db").touch()
+
+            monkeypatch.setenv("DB_PATH", tmpdir)
+
+            response = client.get("/api/database/list-databases")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert len(data["databases"]) == 2
+            db_names = {db["name"] for db in data["databases"]}
+            assert "test.db" in db_names
+            assert "another.db" in db_names
+            assert "other.txt" not in db_names
+
+    def test_list_databases_includes_file_size(self, client, monkeypatch):
+        """Test that database size is included in response."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a .db file with some content
+            db_path = Path(tmpdir) / "test.db"
+            db_path.write_text("test content")
+
+            monkeypatch.setenv("DB_PATH", tmpdir)
+
+            response = client.get("/api/database/list-databases")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert len(data["databases"]) == 1
+            assert data["databases"][0]["size"] > 0
+
+    def test_list_databases_sorted_alphabetically(self, client, monkeypatch):
+        """Test that databases are sorted alphabetically by name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create files in non-alphabetical order
+            (Path(tmpdir) / "zebra.db").touch()
+            (Path(tmpdir) / "apple.db").touch()
+            (Path(tmpdir) / "middle.db").touch()
+
+            monkeypatch.setenv("DB_PATH", tmpdir)
+
+            response = client.get("/api/database/list-databases")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            db_names = [db["name"] for db in data["databases"]]
+            assert db_names == ["apple.db", "middle.db", "zebra.db"]
+
+    def test_list_databases_nonexistent_directory(self, client, monkeypatch):
+        """Test error when DB_PATH points to nonexistent directory."""
+        monkeypatch.setenv("DB_PATH", "/nonexistent/directory")
+
+        response = client.get("/api/database/list-databases")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()

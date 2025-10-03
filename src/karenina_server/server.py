@@ -179,6 +179,18 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         last_modified: str
         error: str | None = None
 
+    class DatabaseInfo(BaseModel):
+        name: str
+        path: str
+        size: int | None = None
+
+    class ListDatabasesResponse(BaseModel):
+        success: bool
+        databases: list[DatabaseInfo]
+        db_directory: str
+        is_default_directory: bool
+        error: str | None = None
+
 else:
     # Fallback classes for when FastAPI is not available
     FilePreviewResponse = None  # type: ignore[misc,assignment]
@@ -200,6 +212,8 @@ else:
     BenchmarkCreateResponse = None  # type: ignore[misc,assignment]
     BenchmarkSaveRequest = None  # type: ignore[misc,assignment]
     BenchmarkSaveResponse = None  # type: ignore[misc,assignment]
+    DatabaseInfo = None  # type: ignore[misc,assignment]
+    ListDatabasesResponse = None  # type: ignore[misc,assignment]
 
 
 # Global verification service instance
@@ -480,6 +494,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         BenchmarkCreateResponse,
         BenchmarkSaveRequest,
         BenchmarkSaveResponse,
+        ListDatabasesResponse,
     )
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
