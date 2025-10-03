@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    from karenina.storage import DBConfig, get_benchmark_summary, init_database, load_benchmark
+    from karenina.storage import DBConfig, get_benchmark_summary, init_database, load_benchmark, save_benchmark
 
     STORAGE_AVAILABLE = True
 except ImportError:
@@ -19,6 +19,10 @@ def register_database_routes(
     BenchmarkListResponse: Any,
     BenchmarkLoadRequest: Any,
     BenchmarkLoadResponse: Any,
+    BenchmarkCreateRequest: Any,
+    BenchmarkCreateResponse: Any,
+    BenchmarkSaveRequest: Any,
+    BenchmarkSaveResponse: Any,
 ) -> None:
     """Register database management routes."""
 
@@ -71,6 +75,7 @@ def register_database_routes(
                     "total_questions": summary["total_questions"],
                     "finished_count": summary.get("finished_count", 0),
                     "unfinished_count": summary.get("unfinished_count", 0),
+                    "last_modified": summary.get("updated_at", summary.get("created_at", "")),
                 }
                 for summary in summaries
             ]
@@ -138,6 +143,162 @@ def register_database_routes(
             raise HTTPException(status_code=404, detail=f"Benchmark not found: {e!s}") from e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading benchmark: {e!s}") from e
+
+    @app.post("/api/database/create-benchmark", response_model=BenchmarkCreateResponse)  # type: ignore[misc]
+    async def create_benchmark_endpoint(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
+        """Create a new empty benchmark in the database."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            # Import Benchmark class here to avoid circular imports
+            from karenina.benchmark.benchmark import Benchmark
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Check if benchmark with this name already exists
+            try:
+                summaries = get_benchmark_summary(db_config, benchmark_name=request.name)
+                if summaries:
+                    raise HTTPException(status_code=400, detail=f"Benchmark '{request.name}' already exists")
+            except Exception:
+                # Database may not exist yet, which is fine
+                pass
+
+            # Create empty benchmark
+            benchmark = Benchmark.create(
+                name=request.name,
+                description=request.description or "",
+                version=request.version or "1.0.0",
+                creator=request.creator or "Unknown",
+            )
+
+            # Save to database
+            save_benchmark(benchmark, db_config)
+
+            # Return in same format as load-benchmark
+            checkpoint_data = {
+                "dataset_metadata": {
+                    "name": benchmark.name,
+                    "description": benchmark.description,
+                    "version": benchmark.version,
+                    "creator": benchmark.creator,
+                    "created_at": "",  # Will be set by database
+                },
+                "questions": {},  # Empty benchmark
+                "global_rubric": None,
+            }
+
+            return BenchmarkCreateResponse(
+                success=True,
+                benchmark_name=request.name,
+                checkpoint_data=checkpoint_data,
+                storage_url=request.storage_url,
+                message=f"Successfully created benchmark '{request.name}' in database",
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error creating benchmark: {e!s}") from e
+
+    @app.post("/api/database/save-benchmark", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
+    async def save_benchmark_endpoint(request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
+        """Save current checkpoint data to the database."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            # Import required classes
+            from karenina.benchmark.benchmark import Benchmark
+            from karenina.schemas.question_class import Question
+            from karenina.schemas.rubric_class import Rubric, RubricTrait
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Get dataset metadata from checkpoint
+            metadata = request.checkpoint_data.get("dataset_metadata", {})
+
+            # Create benchmark instance
+            benchmark = Benchmark.create(
+                name=request.benchmark_name,
+                description=metadata.get("description", ""),
+                version=metadata.get("version", "1.0.0"),
+                creator=metadata.get("creator", "Unknown"),
+            )
+
+            # Add questions from checkpoint
+            questions_data = request.checkpoint_data.get("questions", {})
+            for question_id, q_data in questions_data.items():
+                # Create Question object
+                question = Question(
+                    question=q_data["question"],
+                    raw_answer=q_data["raw_answer"],
+                    tags=q_data.get("tags", []),
+                    few_shot_examples=q_data.get("few_shot_examples"),
+                )
+
+                # Add question to benchmark
+                benchmark.add_question(
+                    question=question,
+                    answer_template=q_data.get("answer_template", ""),
+                    finished=q_data.get("finished", False),
+                    few_shot_examples=q_data.get("few_shot_examples"),
+                )
+
+                # Add question-specific rubric if present
+                if q_data.get("question_rubric"):
+                    rubric_data = q_data["question_rubric"]
+                    traits = []
+                    for trait_data in rubric_data.get("traits", []):
+                        kind = trait_data.get("kind", "score")
+                        trait = RubricTrait(
+                            name=trait_data["name"],
+                            description=trait_data.get("description"),
+                            kind=kind,
+                            min_score=trait_data.get("min_score", 1) if kind == "score" else None,
+                            max_score=trait_data.get("max_score", 5) if kind == "score" else None,
+                        )
+                        traits.append(trait)
+
+                    if traits:
+                        rubric = Rubric(traits=traits)
+                        benchmark.set_question_rubric(question_id, rubric)
+
+            # Add global rubric if present
+            if request.checkpoint_data.get("global_rubric"):
+                global_rubric_data = request.checkpoint_data["global_rubric"]
+                traits = []
+                for trait_data in global_rubric_data.get("traits", []):
+                    kind = trait_data.get("kind", "score")
+                    trait = RubricTrait(
+                        name=trait_data["name"],
+                        description=trait_data.get("description"),
+                        kind=kind,
+                        min_score=trait_data.get("min_score", 1) if kind == "score" else None,
+                        max_score=trait_data.get("max_score", 5) if kind == "score" else None,
+                    )
+                    traits.append(trait)
+
+                if traits:
+                    benchmark.global_rubric = Rubric(traits=traits)
+
+            # Save to database (will overwrite if exists)
+            save_benchmark(benchmark, db_config)
+
+            # Get updated timestamp from database
+            from datetime import UTC, datetime
+
+            last_modified = datetime.now(UTC).isoformat()
+
+            return BenchmarkSaveResponse(
+                success=True,
+                message=f"Benchmark '{request.benchmark_name}' saved successfully",
+                last_modified=last_modified,
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error saving benchmark: {e!s}") from e
 
     @app.post("/api/database/init")  # type: ignore[misc]
     async def init_database_endpoint(request: dict[str, Any]) -> dict[str, Any]:

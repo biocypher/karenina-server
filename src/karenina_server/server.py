@@ -133,6 +133,7 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         total_questions: int
         finished_count: int
         unfinished_count: int
+        last_modified: str | None = None
 
     class BenchmarkListResponse(BaseModel):
         success: bool
@@ -152,6 +153,32 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         message: str
         error: str | None = None
 
+    class BenchmarkCreateRequest(BaseModel):
+        storage_url: str
+        name: str
+        description: str | None = None
+        version: str | None = None
+        creator: str | None = None
+
+    class BenchmarkCreateResponse(BaseModel):
+        success: bool
+        benchmark_name: str
+        checkpoint_data: dict[str, Any]
+        storage_url: str
+        message: str
+        error: str | None = None
+
+    class BenchmarkSaveRequest(BaseModel):
+        storage_url: str
+        benchmark_name: str
+        checkpoint_data: dict[str, Any]
+
+    class BenchmarkSaveResponse(BaseModel):
+        success: bool
+        message: str
+        last_modified: str
+        error: str | None = None
+
 else:
     # Fallback classes for when FastAPI is not available
     FilePreviewResponse = None  # type: ignore[misc,assignment]
@@ -169,6 +196,10 @@ else:
     BenchmarkListResponse = None  # type: ignore[misc,assignment]
     BenchmarkLoadRequest = None  # type: ignore[misc,assignment]
     BenchmarkLoadResponse = None  # type: ignore[misc,assignment]
+    BenchmarkCreateRequest = None  # type: ignore[misc,assignment]
+    BenchmarkCreateResponse = None  # type: ignore[misc,assignment]
+    BenchmarkSaveRequest = None  # type: ignore[misc,assignment]
+    BenchmarkSaveResponse = None  # type: ignore[misc,assignment]
 
 
 # Global verification service instance
@@ -445,6 +476,10 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         BenchmarkListResponse,
         BenchmarkLoadRequest,
         BenchmarkLoadResponse,
+        BenchmarkCreateRequest,
+        BenchmarkCreateResponse,
+        BenchmarkSaveRequest,
+        BenchmarkSaveResponse,
     )
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
