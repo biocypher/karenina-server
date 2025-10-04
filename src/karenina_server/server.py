@@ -168,15 +168,37 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         message: str
         error: str | None = None
 
+    class DuplicateQuestionInfo(BaseModel):
+        question_id: str
+        question_text: str
+        old_version: dict[str, Any]  # Full question data from database
+        new_version: dict[str, Any]  # Full question data from current checkpoint
+
     class BenchmarkSaveRequest(BaseModel):
         storage_url: str
         benchmark_name: str
         checkpoint_data: dict[str, Any]
+        detect_duplicates: bool = False  # If True, only detect duplicates without saving
 
     class BenchmarkSaveResponse(BaseModel):
         success: bool
         message: str
+        last_modified: str | None = None
+        duplicates: list[DuplicateQuestionInfo] | None = None  # Present when duplicates detected
+        error: str | None = None
+
+    class DuplicateResolutionRequest(BaseModel):
+        storage_url: str
+        benchmark_name: str
+        checkpoint_data: dict[str, Any]
+        resolutions: dict[str, str]  # Map of question_id -> "keep_old" | "keep_new"
+
+    class DuplicateResolutionResponse(BaseModel):
+        success: bool
+        message: str
         last_modified: str
+        kept_old_count: int
+        kept_new_count: int
         error: str | None = None
 
     class DatabaseInfo(BaseModel):
@@ -494,6 +516,8 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         BenchmarkCreateResponse,
         BenchmarkSaveRequest,
         BenchmarkSaveResponse,
+        DuplicateResolutionRequest,
+        DuplicateResolutionResponse,
         ListDatabasesResponse,
     )
     app.include_router(health_router, prefix="/api")

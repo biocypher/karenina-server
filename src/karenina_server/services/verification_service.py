@@ -496,7 +496,7 @@ class VerificationService:
                     )
 
                 # Save benchmark to database
-                save_benchmark(benchmark, db_config)
+                _, _ = save_benchmark(benchmark, db_config)
 
             # Save verification results (job.results is already in the correct format)
             save_verification_results(

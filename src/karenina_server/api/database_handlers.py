@@ -25,6 +25,8 @@ def register_database_routes(
     BenchmarkCreateResponse: Any,
     BenchmarkSaveRequest: Any,
     BenchmarkSaveResponse: Any,
+    DuplicateResolutionRequest: Any,
+    DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
 ) -> None:
     """Register database management routes."""
@@ -211,7 +213,7 @@ def register_database_routes(
             )
 
             # Save to database
-            save_benchmark(benchmark, db_config)
+            _, _ = save_benchmark(benchmark, db_config)
 
             # Return in same format as load-benchmark
             checkpoint_data = {
@@ -367,22 +369,195 @@ def register_database_routes(
                 if traits or manual_traits:
                     benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
 
-            # Save to database (will overwrite if exists)
-            save_benchmark(benchmark, db_config)
+            # Save to database (will overwrite if exists, or detect duplicates if requested)
+            _, duplicates_found = save_benchmark(benchmark, db_config, detect_duplicates_only=request.detect_duplicates)
 
             # Get updated timestamp from database
             from datetime import UTC, datetime
 
             last_modified = datetime.now(UTC).isoformat()
 
+            # If detecting duplicates and duplicates were found, return them
+            if request.detect_duplicates and duplicates_found:
+                return BenchmarkSaveResponse(
+                    success=True,
+                    message=f"Found {len(duplicates_found)} duplicate question(s)",
+                    last_modified=None,
+                    duplicates=duplicates_found,
+                )
+
+            # Normal save response
             return BenchmarkSaveResponse(
                 success=True,
                 message=f"Benchmark '{request.benchmark_name}' saved successfully",
                 last_modified=last_modified,
+                duplicates=None,
             )
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error saving benchmark: {e!s}") from e
+
+    @app.post("/api/database/resolve-duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
+    async def resolve_duplicates_endpoint(request: DuplicateResolutionRequest) -> DuplicateResolutionResponse:
+        """Resolve duplicate questions by applying user's choices (keep_old vs keep_new)."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            # Import required classes
+            from karenina.benchmark.benchmark import Benchmark
+            from karenina.schemas.question_class import Question
+            from karenina.schemas.rubric_class import Rubric, RubricTrait
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Get dataset metadata from checkpoint
+            metadata = request.checkpoint_data.get("dataset_metadata", {})
+
+            # Create benchmark instance
+            benchmark = Benchmark.create(
+                name=request.benchmark_name,
+                description=metadata.get("description", ""),
+                version=metadata.get("version", "1.0.0"),
+                creator=metadata.get("creator", "Unknown"),
+            )
+
+            # Track resolution counts
+            kept_old_count = 0
+            kept_new_count = 0
+
+            # Add questions from checkpoint based on user resolutions
+            questions_data = request.checkpoint_data.get("questions", {})
+            for question_id, q_data in questions_data.items():
+                # Check resolution for this question
+                resolution = request.resolutions.get(question_id, "keep_new")  # Default to keep_new
+
+                if resolution == "keep_old":
+                    # Skip this question - keeping the existing version in DB
+                    kept_old_count += 1
+                    continue
+                elif resolution == "keep_new":
+                    # Add this question - will update the existing version
+                    kept_new_count += 1
+
+                # Create Question object
+                question = Question(
+                    question=q_data["question"],
+                    raw_answer=q_data["raw_answer"],
+                    tags=q_data.get("tags", []),
+                    few_shot_examples=q_data.get("few_shot_examples"),
+                )
+
+                # Add question to benchmark with the original question_id
+                benchmark.add_question(
+                    question=question,
+                    answer_template=q_data.get("answer_template", ""),
+                    question_id=question_id,
+                    finished=q_data.get("finished", False),
+                    few_shot_examples=q_data.get("few_shot_examples"),
+                )
+
+                # Add question-specific rubric if present
+                if q_data.get("question_rubric"):
+                    from karenina.schemas.rubric_class import ManualRubricTrait
+
+                    rubric_data = q_data["question_rubric"]
+                    traits = []
+                    manual_traits = []
+
+                    # Process LLM-based traits
+                    for trait_data in rubric_data.get("traits", []):
+                        kind = trait_data.get("kind", "score")
+                        # Map frontend trait types to backend TraitKind
+                        if kind in ("binary", "Binary"):
+                            kind = "boolean"
+                        elif kind in ("score", "Score"):
+                            kind = "score"
+
+                        trait = RubricTrait(
+                            name=trait_data["name"],
+                            description=trait_data.get("description"),
+                            kind=kind,
+                            min_score=trait_data.get("min_score", 1) if kind == "score" else None,
+                            max_score=trait_data.get("max_score", 5) if kind == "score" else None,
+                        )
+                        traits.append(trait)
+
+                    # Process manual (regex) traits
+                    for manual_trait_data in rubric_data.get("manual_traits", []):
+                        manual_trait = ManualRubricTrait(
+                            name=manual_trait_data["name"],
+                            description=manual_trait_data.get("description"),
+                            pattern=manual_trait_data.get("pattern"),
+                            callable_name=manual_trait_data.get("callable_name"),
+                            case_sensitive=manual_trait_data.get("case_sensitive", True),
+                            invert_result=manual_trait_data.get("invert_result", False),
+                        )
+                        manual_traits.append(manual_trait)
+
+                    if traits or manual_traits:
+                        rubric = Rubric(traits=traits, manual_traits=manual_traits)
+                        benchmark.set_question_rubric(question_id, rubric)
+
+            # Add global rubric if present
+            if request.checkpoint_data.get("global_rubric"):
+                from karenina.schemas.rubric_class import ManualRubricTrait
+
+                global_rubric_data = request.checkpoint_data["global_rubric"]
+                traits = []
+                manual_traits = []
+
+                # Process LLM-based traits
+                for trait_data in global_rubric_data.get("traits", []):
+                    kind = trait_data.get("kind", "score")
+                    # Map frontend trait types to backend TraitKind
+                    if kind in ("binary", "Binary"):
+                        kind = "boolean"
+                    elif kind in ("score", "Score"):
+                        kind = "score"
+
+                    trait = RubricTrait(
+                        name=trait_data["name"],
+                        description=trait_data.get("description"),
+                        kind=kind,
+                        min_score=trait_data.get("min_score", 1) if kind == "score" else None,
+                        max_score=trait_data.get("max_score", 5) if kind == "score" else None,
+                    )
+                    traits.append(trait)
+
+                # Process manual (regex) traits
+                for manual_trait_data in global_rubric_data.get("manual_traits", []):
+                    manual_trait = ManualRubricTrait(
+                        name=manual_trait_data["name"],
+                        description=manual_trait_data.get("description"),
+                        pattern=manual_trait_data.get("pattern"),
+                        callable_name=manual_trait_data.get("callable_name"),
+                        case_sensitive=manual_trait_data.get("case_sensitive", True),
+                        invert_result=manual_trait_data.get("invert_result", False),
+                    )
+                    manual_traits.append(manual_trait)
+
+                if traits or manual_traits:
+                    benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
+
+            # Save to database (normal save, not detect-only)
+            _, _ = save_benchmark(benchmark, db_config, detect_duplicates_only=False)
+
+            # Get updated timestamp from database
+            from datetime import UTC, datetime
+
+            last_modified = datetime.now(UTC).isoformat()
+
+            return DuplicateResolutionResponse(
+                success=True,
+                message=f"Successfully resolved duplicates: kept {kept_old_count} old, {kept_new_count} new",
+                last_modified=last_modified,
+                kept_old_count=kept_old_count,
+                kept_new_count=kept_new_count,
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error resolving duplicates: {e!s}") from e
 
     @app.post("/api/database/init")  # type: ignore[misc]
     async def init_database_endpoint(request: dict[str, Any]) -> dict[str, Any]:
