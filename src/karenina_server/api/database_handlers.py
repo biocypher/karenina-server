@@ -95,10 +95,43 @@ def register_database_routes(
             raise HTTPException(status_code=500, detail="Storage functionality not available")
 
         try:
+            from datetime import datetime
+
+            from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, get_session
+
             db_config = DBConfig(storage_url=request.storage_url)
 
             # Load benchmark
             benchmark, loaded_config = load_benchmark(request.benchmark_name, db_config, load_config=True)
+
+            # Query database for updated_at timestamps
+            updated_at_map = {}
+            with get_session(db_config) as session:
+                # Get benchmark ID
+                from sqlalchemy import select
+
+                benchmark_model = session.execute(
+                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                ).scalar_one_or_none()
+
+                if benchmark_model:
+                    # Get all benchmark_questions for this benchmark
+                    bq_models = (
+                        session.execute(
+                            select(BenchmarkQuestionModel).where(
+                                BenchmarkQuestionModel.benchmark_id == benchmark_model.id
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
+
+                    # Build map of question_id -> updated_at
+                    for bq in bq_models:
+                        if bq.updated_at:
+                            updated_at_map[bq.question_id] = (
+                                bq.updated_at.isoformat() if hasattr(bq.updated_at, "isoformat") else str(bq.updated_at)
+                            )
 
             # Convert to checkpoint format (similar to FileManager handleCheckpointUpload)
             questions_data = {}
@@ -111,6 +144,7 @@ def register_database_routes(
                     "answer_template": q_data.get("answer_template"),
                     "finished": q_data.get("finished", False),
                     "tags": q_data.get("tags", []),
+                    "last_modified": updated_at_map.get(question_id, datetime.now().isoformat()),
                 }
 
             # Create checkpoint-like response
@@ -241,20 +275,32 @@ def register_database_routes(
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
-                # Add question to benchmark
+                # Add question to benchmark with the original question_id
                 benchmark.add_question(
                     question=question,
                     answer_template=q_data.get("answer_template", ""),
+                    question_id=question_id,
                     finished=q_data.get("finished", False),
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
+                    from karenina.schemas.rubric_class import ManualRubricTrait
+
                     rubric_data = q_data["question_rubric"]
                     traits = []
+                    manual_traits = []
+
+                    # Process LLM-based traits
                     for trait_data in rubric_data.get("traits", []):
                         kind = trait_data.get("kind", "score")
+                        # Map frontend trait types to backend TraitKind
+                        if kind in ("binary", "Binary"):
+                            kind = "boolean"
+                        elif kind in ("score", "Score"):
+                            kind = "score"
+
                         trait = RubricTrait(
                             name=trait_data["name"],
                             description=trait_data.get("description"),
@@ -264,16 +310,39 @@ def register_database_routes(
                         )
                         traits.append(trait)
 
-                    if traits:
-                        rubric = Rubric(traits=traits)
+                    # Process manual (regex) traits
+                    for manual_trait_data in rubric_data.get("manual_traits", []):
+                        manual_trait = ManualRubricTrait(
+                            name=manual_trait_data["name"],
+                            description=manual_trait_data.get("description"),
+                            pattern=manual_trait_data.get("pattern"),
+                            callable_name=manual_trait_data.get("callable_name"),
+                            case_sensitive=manual_trait_data.get("case_sensitive", True),
+                            invert_result=manual_trait_data.get("invert_result", False),
+                        )
+                        manual_traits.append(manual_trait)
+
+                    if traits or manual_traits:
+                        rubric = Rubric(traits=traits, manual_traits=manual_traits)
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
+                from karenina.schemas.rubric_class import ManualRubricTrait
+
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
+                manual_traits = []
+
+                # Process LLM-based traits
                 for trait_data in global_rubric_data.get("traits", []):
                     kind = trait_data.get("kind", "score")
+                    # Map frontend trait types to backend TraitKind
+                    if kind in ("binary", "Binary"):
+                        kind = "boolean"
+                    elif kind in ("score", "Score"):
+                        kind = "score"
+
                     trait = RubricTrait(
                         name=trait_data["name"],
                         description=trait_data.get("description"),
@@ -283,8 +352,20 @@ def register_database_routes(
                     )
                     traits.append(trait)
 
-                if traits:
-                    benchmark.global_rubric = Rubric(traits=traits)
+                # Process manual (regex) traits
+                for manual_trait_data in global_rubric_data.get("manual_traits", []):
+                    manual_trait = ManualRubricTrait(
+                        name=manual_trait_data["name"],
+                        description=manual_trait_data.get("description"),
+                        pattern=manual_trait_data.get("pattern"),
+                        callable_name=manual_trait_data.get("callable_name"),
+                        case_sensitive=manual_trait_data.get("case_sensitive", True),
+                        invert_result=manual_trait_data.get("invert_result", False),
+                    )
+                    manual_traits.append(manual_trait)
+
+                if traits or manual_traits:
+                    benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
 
             # Save to database (will overwrite if exists)
             save_benchmark(benchmark, db_config)
