@@ -32,6 +32,8 @@ class VerificationService:
         question_ids: list[str] | None = None,
         run_name: str | None = None,
         async_config: AsyncConfig | None = None,
+        storage_url: str | None = None,
+        benchmark_name: str | None = None,
     ) -> str:
         """Start a new verification job."""
         # Validate rubric availability if rubric evaluation is enabled
@@ -76,6 +78,8 @@ class VerificationService:
             config=config,
             total_questions=total_combinations,
             async_config=async_config,
+            storage_url=storage_url,  # Store for auto-save
+            benchmark_name=benchmark_name,  # Store benchmark name for auto-save
         )
 
         self.jobs[job_id] = job
@@ -275,6 +279,9 @@ class VerificationService:
         # Store results in historical collection
         self.historical_results[job.job_id] = job.results.copy()
 
+        # Auto-save to database if configured
+        self._auto_save_results(job, templates)
+
     def _run_verification_async(
         self, job: VerificationJob, templates: list[FinishedTemplate], global_rubric: Rubric | None
     ) -> None:
@@ -338,6 +345,9 @@ class VerificationService:
 
             # Store results in historical collection
             self.historical_results[job.job_id] = job.results.copy()
+
+            # Auto-save to database if configured
+            self._auto_save_results(job, templates)
 
         except Exception as e:
             logger.error(f"Async verification failed: {e}")
@@ -436,6 +446,75 @@ class VerificationService:
                 error_results[combination_id] = error_result
 
         return error_results
+
+    def _auto_save_results(self, job: VerificationJob, templates: list[FinishedTemplate]) -> None:
+        """Auto-save verification results to database if configured."""
+        import os
+
+        # Check AUTOSAVE_DATABASE environment variable (default: True)
+        autosave_enabled = os.getenv("AUTOSAVE_DATABASE", "true").lower() in ("true", "1", "yes")
+
+        if not autosave_enabled:
+            logger.info("Auto-save to database is disabled (AUTOSAVE_DATABASE=false)")
+            return
+
+        if not job.storage_url:
+            logger.debug("No storage URL provided, skipping database auto-save")
+            return
+
+        if not job.benchmark_name:
+            logger.warning("No benchmark name provided, cannot auto-save results")
+            return
+
+        try:
+            from karenina.benchmark import Benchmark
+            from karenina.storage import DBConfig, get_benchmark_summary, save_benchmark, save_verification_results
+
+            # Create database config
+            db_config = DBConfig(storage_url=job.storage_url)
+
+            # Check if benchmark already exists
+            existing_benchmarks = get_benchmark_summary(db_config, benchmark_name=job.benchmark_name)
+
+            if not existing_benchmarks:
+                # Benchmark doesn't exist, create it
+                logger.info(f"Creating new benchmark '{job.benchmark_name}' in database")
+                benchmark = Benchmark.create(
+                    name=job.benchmark_name,
+                    description=f"Auto-created for verification run: {job.run_name}",
+                    version="1.0.0",
+                )
+
+                # Add questions from templates
+                for template in templates:
+                    # Add question using text format to ensure question_id is preserved
+                    benchmark.add_question(
+                        question=template.question_text,
+                        raw_answer="[Placeholder - see template]",
+                        answer_template=template.template_code,
+                        question_id=template.question_id,  # Explicitly set question_id to match template
+                    )
+
+                # Save benchmark to database
+                _, _ = save_benchmark(benchmark, db_config)
+
+            # Save verification results (job.results is already in the correct format)
+            save_verification_results(
+                results=job.results,
+                db_config=db_config,
+                run_id=job.job_id,
+                benchmark_name=job.benchmark_name,
+                run_name=job.run_name,
+                config=job.config.model_dump(),
+            )
+
+            logger.info(
+                f"Auto-saved verification results to database: {job.storage_url} (benchmark: {job.benchmark_name})"
+            )
+
+        except Exception as e:
+            # Don't fail the verification job if auto-save fails
+            logger.error(f"Failed to auto-save results to database: {e}")
 
     def get_progress(self, job_id: str) -> dict[str, Any] | None:
         """Get progress information for a job."""
