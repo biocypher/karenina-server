@@ -70,6 +70,7 @@ class TestAutoSaveEnabled:
 
             mock_result = VerificationResult(
                 question_id="test_q1",
+                template_id="no_template",
                 success=True,
                 verified=True,
                 question_text="What is 2+2?",
@@ -126,6 +127,7 @@ class TestAutoSaveEnabled:
 
             mock_result = VerificationResult(
                 question_id="test_q1",
+                template_id="no_template",
                 success=True,
                 verified=True,
                 question_text="What is 2+2?",
@@ -185,6 +187,7 @@ class TestAutoSaveDisabled:
 
             mock_result = VerificationResult(
                 question_id="test_q1",
+                template_id="no_template",
                 success=True,
                 verified=True,
                 question_text="What is 2+2?",
@@ -231,6 +234,7 @@ class TestAutoSaveDisabled:
 
             mock_result = VerificationResult(
                 question_id="test_q1",
+                template_id="no_template",
                 success=True,
                 verified=True,
                 question_text="What is 2+2?",
@@ -276,6 +280,7 @@ class TestAutoSaveErrorHandling:
 
             mock_result = VerificationResult(
                 question_id="test_q1",
+                template_id="no_template",
                 success=True,
                 verified=True,
                 question_text="What is 2+2?",

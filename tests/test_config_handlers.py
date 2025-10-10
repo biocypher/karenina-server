@@ -224,7 +224,7 @@ class TestConfigHandlers:
 
     def test_update_defaults_valid(self, test_client):
         """Test updating default configuration."""
-        payload = {"default_interface": "openrouter", "default_provider": "openai", "default_model": "gpt-4"}
+        payload = {"default_interface": "openrouter", "default_provider": "openai", "default_model": "gpt-4.1-mini"}
 
         response = test_client.put("/api/config/defaults", json=payload)
 
@@ -234,7 +234,11 @@ class TestConfigHandlers:
 
     def test_update_defaults_invalid_interface(self, test_client):
         """Test updating with invalid interface."""
-        payload = {"default_interface": "invalid_interface", "default_provider": "openai", "default_model": "gpt-4"}
+        payload = {
+            "default_interface": "invalid_interface",
+            "default_provider": "openai",
+            "default_model": "gpt-4.1-mini",
+        }
 
         response = test_client.put("/api/config/defaults", json=payload)
 

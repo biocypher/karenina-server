@@ -16,7 +16,7 @@ def temp_defaults_file():
         initial_defaults = {
             "default_interface": "langchain",
             "default_provider": "openai",
-            "default_model": "gpt-4",
+            "default_model": "gpt-4.1-mini",
             "saved_at": "2025-07-19T07:45:00Z",
         }
         json.dump(initial_defaults, f)
@@ -52,7 +52,7 @@ class TestDefaultsService:
 
         assert defaults["default_interface"] == "langchain"
         assert defaults["default_provider"] == "openai"
-        assert defaults["default_model"] == "gpt-4"
+        assert defaults["default_model"] == "gpt-4.1-mini"
 
     def test_get_defaults_fallback(self, empty_defaults_service):
         """Test fallback defaults when file doesn't exist."""
@@ -76,7 +76,11 @@ class TestDefaultsService:
 
     def test_validate_defaults_success(self, defaults_service):
         """Test successful validation of defaults."""
-        valid_defaults = {"default_interface": "langchain", "default_provider": "openai", "default_model": "gpt-4"}
+        valid_defaults = {
+            "default_interface": "langchain",
+            "default_provider": "openai",
+            "default_model": "gpt-4.1-mini",
+        }
 
         is_valid, error = defaults_service._validate_defaults(valid_defaults)
         assert is_valid
@@ -87,7 +91,7 @@ class TestDefaultsService:
         invalid_defaults = {
             "default_interface": "invalid_interface",
             "default_provider": "openai",
-            "default_model": "gpt-4",
+            "default_model": "gpt-4.1-mini",
         }
 
         is_valid, error = defaults_service._validate_defaults(invalid_defaults)
@@ -108,7 +112,7 @@ class TestDefaultsService:
 
     def test_validate_defaults_empty_provider(self, defaults_service):
         """Test validation with empty provider."""
-        invalid_defaults = {"default_interface": "langchain", "default_provider": "", "default_model": "gpt-4"}
+        invalid_defaults = {"default_interface": "langchain", "default_provider": "", "default_model": "gpt-4.1-mini"}
 
         is_valid, error = defaults_service._validate_defaults(invalid_defaults)
         assert not is_valid
@@ -116,7 +120,11 @@ class TestDefaultsService:
 
     def test_save_invalid_defaults(self, defaults_service):
         """Test that saving invalid defaults raises ValueError."""
-        invalid_defaults = {"default_interface": "invalid", "default_provider": "openai", "default_model": "gpt-4"}
+        invalid_defaults = {
+            "default_interface": "invalid",
+            "default_provider": "openai",
+            "default_model": "gpt-4.1-mini",
+        }
 
         with pytest.raises(ValueError, match="Invalid interface"):
             defaults_service.save_defaults(invalid_defaults)
