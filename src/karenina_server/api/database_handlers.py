@@ -293,7 +293,7 @@ def register_database_routes(
                 question = Question(
                     question=q_data["question"],
                     raw_answer=q_data["raw_answer"],
-                    tags=q_data.get("tags", []),
+                    tags=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
@@ -464,7 +464,7 @@ def register_database_routes(
                 question = Question(
                     question=q_data["question"],
                     raw_answer=q_data["raw_answer"],
-                    tags=q_data.get("tags", []),
+                    tags=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
