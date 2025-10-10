@@ -14,6 +14,26 @@ except ImportError:
     STORAGE_AVAILABLE = False
 
 
+def _extract_creator_name(creator: Any) -> str:
+    """
+    Extract creator name from either a string or Person dict.
+
+    Args:
+        creator: Either a string or a dict with '@type': 'Person' and 'name' key
+
+    Returns:
+        The creator name as a string, or 'Unknown' if unable to extract
+    """
+    if creator is None:
+        return "Unknown"
+    if isinstance(creator, str):
+        return creator
+    if isinstance(creator, dict) and creator.get("@type") == "Person":
+        name = creator.get("name", "Unknown")
+        return str(name)  # Ensure it's a string
+    return "Unknown"
+
+
 def register_database_routes(
     app: Any,
     DatabaseConnectRequest: Any,
@@ -263,7 +283,7 @@ def register_database_routes(
                 name=request.benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
-                creator=metadata.get("creator", "Unknown"),
+                creator=_extract_creator_name(metadata.get("creator")),
             )
 
             # Add questions from checkpoint
@@ -419,7 +439,7 @@ def register_database_routes(
                 name=request.benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
-                creator=metadata.get("creator", "Unknown"),
+                creator=_extract_creator_name(metadata.get("creator")),
             )
 
             # Track resolution counts
