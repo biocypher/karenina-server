@@ -165,7 +165,7 @@ def register_database_routes(
                     "raw_answer": q_data["raw_answer"],
                     "answer_template": q_data.get("answer_template"),
                     "finished": q_data.get("finished", False),
-                    "tags": q_data.get("keywords", []),  # Extract from "keywords" field
+                    "keywords": q_data.get("keywords", []),  # Frontend CheckpointItem expects "keywords"
                     "last_modified": updated_at_map.get(question_id, datetime.now().isoformat()),
                 }
 
