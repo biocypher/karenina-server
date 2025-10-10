@@ -233,7 +233,7 @@ def register_database_routes(
             )
 
             # Save to database
-            _, _ = save_benchmark(benchmark, db_config)
+            save_benchmark(benchmark, db_config)
 
             # Return in same format as load-benchmark
             checkpoint_data = {
@@ -390,7 +390,9 @@ def register_database_routes(
                     benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
 
             # Save to database (will overwrite if exists, or detect duplicates if requested)
-            _, duplicates_found = save_benchmark(benchmark, db_config, detect_duplicates_only=request.detect_duplicates)
+            result = save_benchmark(benchmark, db_config, detect_duplicates_only=request.detect_duplicates)
+            # Handle conditional return type: tuple if detect_duplicates=True, Benchmark if False
+            duplicates_found = result[1] if isinstance(result, tuple) else None
 
             # Get updated timestamp from database
             from datetime import UTC, datetime
@@ -561,7 +563,7 @@ def register_database_routes(
                     benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
 
             # Save to database (normal save, not detect-only)
-            _, _ = save_benchmark(benchmark, db_config, detect_duplicates_only=False)
+            save_benchmark(benchmark, db_config, detect_duplicates_only=False)
 
             # Get updated timestamp from database
             from datetime import UTC, datetime
