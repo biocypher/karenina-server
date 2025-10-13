@@ -14,6 +14,26 @@ except ImportError:
     STORAGE_AVAILABLE = False
 
 
+def _extract_creator_name(creator: Any) -> str:
+    """
+    Extract creator name from either a string or Person dict.
+
+    Args:
+        creator: Either a string or a dict with '@type': 'Person' and 'name' key
+
+    Returns:
+        The creator name as a string, or 'Unknown' if unable to extract
+    """
+    if creator is None:
+        return "Unknown"
+    if isinstance(creator, str):
+        return creator
+    if isinstance(creator, dict) and creator.get("@type") == "Person":
+        name = creator.get("name", "Unknown")
+        return str(name)  # Ensure it's a string
+    return "Unknown"
+
+
 def register_database_routes(
     app: Any,
     DatabaseConnectRequest: Any,
@@ -145,7 +165,7 @@ def register_database_routes(
                     "raw_answer": q_data["raw_answer"],
                     "answer_template": q_data.get("answer_template"),
                     "finished": q_data.get("finished", False),
-                    "tags": q_data.get("tags", []),
+                    "keywords": q_data.get("keywords", []),  # Frontend CheckpointItem expects "keywords"
                     "last_modified": updated_at_map.get(question_id, datetime.now().isoformat()),
                 }
 
@@ -213,7 +233,7 @@ def register_database_routes(
             )
 
             # Save to database
-            _, _ = save_benchmark(benchmark, db_config)
+            save_benchmark(benchmark, db_config)
 
             # Return in same format as load-benchmark
             checkpoint_data = {
@@ -263,7 +283,7 @@ def register_database_routes(
                 name=request.benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
-                creator=metadata.get("creator", "Unknown"),
+                creator=_extract_creator_name(metadata.get("creator")),
             )
 
             # Add questions from checkpoint
@@ -273,7 +293,7 @@ def register_database_routes(
                 question = Question(
                     question=q_data["question"],
                     raw_answer=q_data["raw_answer"],
-                    tags=q_data.get("tags", []),
+                    tags=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
@@ -370,7 +390,9 @@ def register_database_routes(
                     benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
 
             # Save to database (will overwrite if exists, or detect duplicates if requested)
-            _, duplicates_found = save_benchmark(benchmark, db_config, detect_duplicates_only=request.detect_duplicates)
+            result = save_benchmark(benchmark, db_config, detect_duplicates_only=request.detect_duplicates)
+            # Handle conditional return type: tuple if detect_duplicates=True, Benchmark if False
+            duplicates_found = result[1] if isinstance(result, tuple) else None
 
             # Get updated timestamp from database
             from datetime import UTC, datetime
@@ -419,7 +441,7 @@ def register_database_routes(
                 name=request.benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
-                creator=metadata.get("creator", "Unknown"),
+                creator=_extract_creator_name(metadata.get("creator")),
             )
 
             # Track resolution counts
@@ -444,7 +466,7 @@ def register_database_routes(
                 question = Question(
                     question=q_data["question"],
                     raw_answer=q_data["raw_answer"],
-                    tags=q_data.get("tags", []),
+                    tags=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
@@ -541,7 +563,7 @@ def register_database_routes(
                     benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
 
             # Save to database (normal save, not detect-only)
-            _, _ = save_benchmark(benchmark, db_config, detect_duplicates_only=False)
+            save_benchmark(benchmark, db_config, detect_duplicates_only=False)
 
             # Get updated timestamp from database
             from datetime import UTC, datetime

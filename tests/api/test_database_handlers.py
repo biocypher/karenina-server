@@ -37,6 +37,8 @@ def mock_app():
         BenchmarkSaveResponse,
         DatabaseConnectRequest,
         DatabaseConnectResponse,
+        DuplicateResolutionRequest,
+        DuplicateResolutionResponse,
         ListDatabasesResponse,
     )
 
@@ -51,6 +53,8 @@ def mock_app():
         BenchmarkCreateResponse,
         BenchmarkSaveRequest,
         BenchmarkSaveResponse,
+        DuplicateResolutionRequest,
+        DuplicateResolutionResponse,
         ListDatabasesResponse,
     )
 
