@@ -256,7 +256,7 @@ class VerificationService:
                 job.results[combination_id] = result
                 job.processed_count += 1
 
-                if result.success:
+                if result.completed_without_errors:
                     job.successful_count += 1
                 else:
                     job.failed_count += 1
@@ -328,7 +328,7 @@ class VerificationService:
                 for combination_id, result in question_results.items():
                     job.results[combination_id] = result
 
-                    if result.success:
+                    if result.completed_without_errors:
                         job.successful_count += 1
                     else:
                         job.failed_count += 1
