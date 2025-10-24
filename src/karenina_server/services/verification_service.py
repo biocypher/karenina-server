@@ -224,6 +224,9 @@ class VerificationService:
             job.status = "running"
             job.start_time = time.time()
 
+            # Emit job started event
+            self._emit_progress_event(job.job_id, "job_started")
+
             # Load global rubric if rubric evaluation is enabled
             global_rubric = None
             if getattr(job.config, "rubric_enabled", False):
@@ -242,6 +245,8 @@ class VerificationService:
             job.status = "failed"
             job.error_message = str(e)
             job.end_time = time.time()
+            # Emit failure event
+            self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
 
     def _run_verification_sync(
         self, job: VerificationJob, templates: list[FinishedTemplate], global_rubric: Rubric | None
@@ -251,8 +256,18 @@ class VerificationService:
             if job.status == "cancelled":
                 return
 
+            # Mark task as started
+            job.task_started(template.question_id)
+            self._emit_progress_event(job.job_id, "task_started", {"question_id": template.question_id})
+
+            # Track start time for this template
+            template_start_time = time.time()
+
             # Process this template and get its results
             question_results = self._process_single_template(job, template, global_rubric)
+
+            # Calculate duration
+            duration = time.time() - template_start_time
 
             # Process each model combination result
             for combination_id, result in question_results.items():
@@ -264,23 +279,30 @@ class VerificationService:
                 else:
                     job.failed_count += 1
 
+            # Mark task as finished
+            success = any(r.completed_without_errors for r in question_results.values())
+            job.task_finished(template.question_id, success, duration)
+
             # Update progress
             job.percentage = (job.processed_count / job.total_questions) * 100
 
-            # Calculate time estimates
-            if job.processed_count > 0:
-                elapsed_time = time.time() - job.start_time
-                avg_time_per_question = elapsed_time / job.processed_count
-                remaining_questions = job.total_questions - job.processed_count
-                job.estimated_time_remaining = avg_time_per_question * remaining_questions
+            # Emit task completed event
+            self._emit_progress_event(
+                job.job_id, "task_completed", {"question_id": template.question_id, "success": success}
+            )
 
         # Job completed successfully
         job.status = "completed"
         job.end_time = time.time()
         job.percentage = 100.0
+        job.estimated_time_remaining = 0.0
+        job.in_progress_questions = []  # Clear in-progress list
 
         # Store results in historical collection
         self.historical_results[job.job_id] = job.results.copy()
+
+        # Emit completion event
+        self._emit_progress_event(job.job_id, "job_completed")
 
         # Auto-save to database if configured
         self._auto_save_results(job, templates)
@@ -349,8 +371,7 @@ class VerificationService:
             )
 
         try:
-            # Emit job started event
-            self._emit_progress_event(job.job_id, "job_started")
+            # Note: job_started event is emitted in _run_verification() before branching
 
             # Run templates in parallel using async utilities
             template_results = asyncio.run(
