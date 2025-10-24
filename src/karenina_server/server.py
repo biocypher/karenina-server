@@ -107,6 +107,9 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         estimated_time_remaining: float | None = None
         error: str | None = None
         result: dict[str, Any] | None = None
+        # WebSocket streaming fields
+        in_progress_questions: list[str] = []
+        ema_seconds_per_item: float = 0.0
 
     # MCP Validation API Models
     class MCPTool(BaseModel):
