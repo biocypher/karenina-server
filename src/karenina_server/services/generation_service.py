@@ -503,19 +503,21 @@ class GenerationService:
                     # Handle exceptions from async execution
                     question_id = "unknown"
                     job.results[question_id] = {"success": False, "error": str(result), "template_code": ""}
-                    job.failed_count += 1
+                    # Only increment if not already counted by task_finished()
+                    if not job.async_config.enabled:
+                        job.failed_count += 1
                 else:
                     question_id = result["question_id"]
                     job.results[question_id] = result
-                    if not job.async_config.enabled:
-                        # Counts already updated in sync mode
-                        continue
 
-                    job.processed_count += 1
-                    if result.get("success", False):
-                        job.successful_count += 1
-                    else:
-                        job.failed_count += 1
+                    # Only update counts if async is disabled
+                    # In async mode, counts are already updated by task_finished() callbacks
+                    if not job.async_config.enabled:
+                        job.processed_count += 1
+                        if result.get("success", False):
+                            job.successful_count += 1
+                        else:
+                            job.failed_count += 1
 
             # Job completed successfully
             job.status = "completed"
@@ -523,13 +525,20 @@ class GenerationService:
             job.percentage = 100.0
 
             # Create final result
-            total_time = (job.end_time or 0) - (job.start_time or 0)
+            # Use EMA for average time (represents per-item average)
+            # Fall back to wall-clock time / questions for sync mode or if EMA not available
+            if job.ema_seconds_per_item > 0:
+                average_time = job.ema_seconds_per_item
+            else:
+                total_time = (job.end_time or 0) - (job.start_time or 0)
+                average_time = total_time / job.total_questions if job.total_questions > 0 else 0
+
             job.result = {
                 "templates": job.results,
                 "total_templates": job.total_questions,
                 "successful_generations": job.successful_count,
                 "failed_generations": job.failed_count,
-                "average_generation_time": total_time / job.total_questions if job.total_questions > 0 else 0,
+                "average_generation_time": average_time,
                 "model_info": {"name": model_name, "provider": model_provider, "temperature": temperature},
             }
 
