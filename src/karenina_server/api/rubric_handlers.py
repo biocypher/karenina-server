@@ -109,14 +109,15 @@ async def create_or_update_rubric(rubric: Rubric) -> dict[str, str]:
     This endpoint stores the rubric that will be used for evaluation.
     """
     try:
-        # Validate rubric has at least one trait (LLM or manual)
-        if not rubric.traits and not rubric.manual_traits:
-            raise HTTPException(status_code=400, detail="Rubric must have at least one trait (LLM or manual)")
+        # Validate rubric has at least one trait (LLM, manual, or metric)
+        if not rubric.traits and not rubric.manual_traits and not rubric.metric_traits:
+            raise HTTPException(status_code=400, detail="Rubric must have at least one trait (LLM, manual, or metric)")
 
-        # Validate trait names are unique across both LLM and manual traits
+        # Validate trait names are unique across all trait types
         llm_trait_names = [trait.name for trait in rubric.traits]
         manual_trait_names = [trait.name for trait in rubric.manual_traits]
-        all_trait_names = llm_trait_names + manual_trait_names
+        metric_trait_names = [trait.name for trait in rubric.metric_traits]
+        all_trait_names = llm_trait_names + manual_trait_names + metric_trait_names
 
         if len(all_trait_names) != len(set(all_trait_names)):
             raise HTTPException(status_code=400, detail="Trait names must be unique across all trait types")
