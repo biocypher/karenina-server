@@ -54,6 +54,10 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         data: list[dict[str, Any]] | None = None
         error: str | None = None
 
+    class KeywordColumnConfig(BaseModel):
+        column: str
+        separator: str
+
     class ExtractQuestionsRequest(BaseModel):
         file_id: str
         question_column: str
@@ -64,6 +68,9 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         author_email_column: str | None = None
         author_affiliation_column: str | None = None
         url_column: str | None = None
+        # New format: multiple keyword columns with individual separators
+        keywords_columns: list[dict[str, str]] | None = None
+        # Deprecated: kept for backward compatibility
         keywords_column: str | None = None
         keywords_separator: str = ","
 
@@ -100,6 +107,9 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         estimated_time_remaining: float | None = None
         error: str | None = None
         result: dict[str, Any] | None = None
+        # WebSocket streaming fields
+        in_progress_questions: list[str] = []
+        ema_seconds_per_item: float = 0.0
 
     # MCP Validation API Models
     class MCPTool(BaseModel):
@@ -523,6 +533,27 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
+
+    # Set up event loop for broadcasters on startup
+    @app.on_event("startup")
+    async def startup_event() -> None:
+        """Initialize event loops for progress broadcasters."""
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+
+        # Set event loop for verification service broadcaster
+        if verification_service is not None:
+            verification_service.broadcaster.set_event_loop(loop)
+
+        # Set event loop for generation service broadcaster if it exists
+        try:
+            from karenina_server.services.generation_service import generation_service
+
+            if generation_service is not None:
+                generation_service.broadcaster.set_event_loop(loop)
+        except ImportError:
+            pass
 
     # Serve static files from the webapp dist directory
     dist_dir = webapp_dir / "dist"

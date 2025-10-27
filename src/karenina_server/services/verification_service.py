@@ -11,6 +11,8 @@ from karenina.benchmark.verification.orchestrator import run_question_verificati
 from karenina.schemas.rubric_class import Rubric
 from karenina.utils.async_utils import AsyncConfig
 
+from .progress_broadcaster import ProgressBroadcaster
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class VerificationService:
         self.futures: dict[str, Any] = {}
         # Store all historical results keyed by job_id
         self.historical_results: dict[str, dict[str, VerificationResult]] = {}
+        self.broadcaster = ProgressBroadcaster()
 
     def start_verification(
         self,
@@ -221,6 +224,9 @@ class VerificationService:
             job.status = "running"
             job.start_time = time.time()
 
+            # Emit job started event
+            self._emit_progress_event(job.job_id, "job_started")
+
             # Load global rubric if rubric evaluation is enabled
             global_rubric = None
             if getattr(job.config, "rubric_enabled", False):
@@ -239,6 +245,8 @@ class VerificationService:
             job.status = "failed"
             job.error_message = str(e)
             job.end_time = time.time()
+            # Emit failure event
+            self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
 
     def _run_verification_sync(
         self, job: VerificationJob, templates: list[FinishedTemplate], global_rubric: Rubric | None
@@ -248,36 +256,53 @@ class VerificationService:
             if job.status == "cancelled":
                 return
 
+            # Mark task as started
+            job.task_started(template.question_id)
+            self._emit_progress_event(job.job_id, "task_started", {"question_id": template.question_id})
+
+            # Track start time for this template
+            template_start_time = time.time()
+
             # Process this template and get its results
             question_results = self._process_single_template(job, template, global_rubric)
+
+            # Calculate duration
+            duration = time.time() - template_start_time
 
             # Process each model combination result
             for combination_id, result in question_results.items():
                 job.results[combination_id] = result
                 job.processed_count += 1
 
-                if result.success:
+                if result.completed_without_errors:
                     job.successful_count += 1
                 else:
                     job.failed_count += 1
 
+            # Mark task as finished
+            success = any(r.completed_without_errors for r in question_results.values())
+            job.task_finished(template.question_id, success, duration)
+
             # Update progress
             job.percentage = (job.processed_count / job.total_questions) * 100
 
-            # Calculate time estimates
-            if job.processed_count > 0:
-                elapsed_time = time.time() - job.start_time
-                avg_time_per_question = elapsed_time / job.processed_count
-                remaining_questions = job.total_questions - job.processed_count
-                job.estimated_time_remaining = avg_time_per_question * remaining_questions
+            # Emit task completed event
+            self._emit_progress_event(
+                job.job_id, "task_completed", {"question_id": template.question_id, "success": success}
+            )
 
         # Job completed successfully
         job.status = "completed"
         job.end_time = time.time()
         job.percentage = 100.0
+        job.estimated_time_remaining = 0.0
+        job.in_progress_questions = []  # Clear in-progress list
 
         # Store results in historical collection
         self.historical_results[job.job_id] = job.results.copy()
+
+        # Emit completion event
+        self._emit_progress_event(job.job_id, "job_completed")
 
         # Auto-save to database if configured
         self._auto_save_results(job, templates)
@@ -289,6 +314,9 @@ class VerificationService:
         import asyncio
 
         from karenina.utils.async_utils import execute_with_config
+
+        # Track task start times for EMA calculation
+        task_start_times: dict[str, float] = {}
 
         def process_template_wrapper(template: FinishedTemplate) -> dict[str, VerificationResult]:
             """Wrapper function for async processing."""
@@ -306,7 +334,45 @@ class VerificationService:
                 except (ValueError, IndexError):
                     pass
 
+        def handle_task_start(template: FinishedTemplate) -> None:
+            """Handle task start event."""
+            task_start_times[template.question_id] = time.time()
+            job.task_started(template.question_id)
+            self._emit_progress_event(job.job_id, "task_started", {"question_id": template.question_id})
+
+        def handle_task_done(template: FinishedTemplate, result: dict[str, VerificationResult] | Exception) -> None:
+            """Handle task completion event."""
+            duration = time.time() - task_start_times.get(template.question_id, time.time())
+            success = not isinstance(result, Exception)
+            if success and isinstance(result, dict):
+                # Check if any of the results have errors
+                success = any(r.completed_without_errors for r in result.values()) if result else False
+
+            # For verification, we need to handle counts differently since each template
+            # produces multiple verification results (one per model combination).
+            # We manually update in_progress and EMA, but NOT processed/success/failed counts
+            # since those are handled in the result processing loop below.
+
+            # Remove from in-progress list
+            if template.question_id in job.in_progress_questions:
+                job.in_progress_questions.remove(template.question_id)
+
+            # Update EMA for time estimation (per template, not per combination)
+            if job.ema_seconds_per_item == 0.0:
+                job.ema_seconds_per_item = duration
+            else:
+                job.ema_seconds_per_item = 0.3 * duration + 0.7 * job.ema_seconds_per_item
+
+            # Update timestamp
+            job.last_update_ts = time.time()
+
+            self._emit_progress_event(
+                job.job_id, "task_completed", {"question_id": template.question_id, "success": success}
+            )
+
         try:
+            # Note: job_started event is emitted in _run_verification() before branching
+
             # Run templates in parallel using async utilities
             template_results = asyncio.run(
                 execute_with_config(
@@ -314,6 +380,8 @@ class VerificationService:
                     sync_function=process_template_wrapper,
                     config=job.async_config,
                     progress_callback=update_progress,
+                    on_task_start=handle_task_start,
+                    on_task_done=handle_task_done,
                 )
             )
 
@@ -328,7 +396,7 @@ class VerificationService:
                 for combination_id, result in question_results.items():
                     job.results[combination_id] = result
 
-                    if result.success:
+                    if result.completed_without_errors:
                         job.successful_count += 1
                     else:
                         job.failed_count += 1
@@ -338,19 +406,36 @@ class VerificationService:
                 len(results) if not isinstance(results, Exception) else 0 for results in template_results
             )
 
+            # Update percentage and estimated time using counts
+            job.percentage = (job.processed_count / job.total_questions) * 100 if job.total_questions > 0 else 0.0
+            remaining_count = job.total_questions - job.processed_count
+            job.estimated_time_remaining = (
+                job.ema_seconds_per_item * remaining_count if job.ema_seconds_per_item > 0 else None
+            )
+
             # Job completed successfully
             job.status = "completed"
             job.end_time = time.time()
             job.percentage = 100.0
+            job.estimated_time_remaining = 0.0
+            job.in_progress_questions = []  # Clear in-progress list
 
             # Store results in historical collection
             self.historical_results[job.job_id] = job.results.copy()
+
+            # Emit completion event
+            self._emit_progress_event(job.job_id, "job_completed")
 
             # Auto-save to database if configured
             self._auto_save_results(job, templates)
 
         except Exception as e:
             logger.error(f"Async verification failed: {e}")
+            job.status = "failed"
+            job.error_message = str(e)
+            job.end_time = time.time()
+            # Emit failure event
+            self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
             # Fall back to sync processing
             logger.info("Falling back to synchronous processing")
             self._run_verification_sync(job, templates, global_rubric)
@@ -534,6 +619,9 @@ class VerificationService:
             "current_question": job.current_question,
             "estimated_time_remaining": job.estimated_time_remaining,
             "error": job.error_message,
+            # WebSocket streaming fields
+            "in_progress_questions": job.in_progress_questions,
+            "ema_seconds_per_item": job.ema_seconds_per_item,
         }
 
         # Include results if completed
@@ -541,6 +629,31 @@ class VerificationService:
             progress_data["results"] = job.results
 
         return progress_data
+
+    def _emit_progress_event(self, job_id: str, event_type: str, extra_data: dict[str, Any] | None = None) -> None:
+        """Emit a progress event to WebSocket subscribers."""
+        job = self.jobs.get(job_id)
+        if not job:
+            return
+
+        event_data = {
+            "type": event_type,
+            "job_id": job_id,
+            "status": job.status,
+            "percentage": job.percentage,
+            "processed": job.processed_count,
+            "total": job.total_questions,
+            "in_progress_questions": job.in_progress_questions,
+            "ema_seconds_per_item": job.ema_seconds_per_item,
+            "estimated_time_remaining": job.estimated_time_remaining,
+            "current_question": job.current_question,
+        }
+
+        if extra_data:
+            event_data.update(extra_data)
+
+        # Broadcast from thread (thread-safe)
+        self.broadcaster.broadcast_from_thread(job_id, event_data)
 
 
 # Global service instance

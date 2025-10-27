@@ -142,6 +142,15 @@ def register_file_routes(
         try:
             file_info = uploaded_files[request.file_id]
 
+            # Handle backward compatibility: convert old format to new format
+            keywords_columns = None
+            if request.keywords_columns:
+                # New format provided
+                keywords_columns = request.keywords_columns
+            elif request.keywords_column:
+                # Old format provided, convert to new format
+                keywords_columns = [{"column": request.keywords_column, "separator": request.keywords_separator}]
+
             # Extract questions and return as JSON
             questions_data = extract_and_generate_questions(
                 file_path=file_info["file_path"],
@@ -155,8 +164,7 @@ def register_file_routes(
                 author_email_column=request.author_email_column,
                 author_affiliation_column=request.author_affiliation_column,
                 url_column=request.url_column,
-                keywords_column=request.keywords_column,
-                keywords_separator=request.keywords_separator,
+                keywords_columns=keywords_columns,
             )
 
             return ExtractQuestionsResponse(

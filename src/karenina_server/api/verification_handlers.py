@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 
@@ -100,6 +100,56 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
+
+    @app.websocket("/ws/verification-progress/{job_id}")  # type: ignore[misc]
+    async def websocket_verification_progress(websocket: WebSocket, job_id: str) -> None:
+        """WebSocket endpoint for real-time verification progress updates."""
+        import asyncio
+
+        # Validate job exists
+        job = verification_service.jobs.get(job_id)
+        if not job:
+            await websocket.close(code=1008, reason="Job not found")
+            return
+
+        # Accept the connection
+        await websocket.accept()
+
+        # Set the event loop for the broadcaster if not already set
+        if verification_service.broadcaster._event_loop is None:
+            verification_service.broadcaster.set_event_loop(asyncio.get_running_loop())
+
+        # Subscribe to progress updates
+        await verification_service.broadcaster.subscribe(job_id, websocket)
+
+        try:
+            # Send current state immediately
+            progress = verification_service.get_progress(job_id)
+            if progress:
+                await websocket.send_json(
+                    {
+                        "type": "snapshot",
+                        "job_id": job_id,
+                        "status": progress["status"],
+                        "percentage": progress["percentage"],
+                        "processed": progress["processed_count"],
+                        "total": progress["total_questions"],
+                        "in_progress_questions": progress.get("in_progress_questions", []),
+                        "ema_seconds_per_item": progress.get("ema_seconds_per_item", 0),
+                        "estimated_time_remaining": progress.get("estimated_time_remaining"),
+                        "current_question": progress.get("current_question", ""),
+                    }
+                )
+
+            # Keep connection alive and wait for client disconnect
+            while True:
+                try:
+                    await websocket.receive_text()
+                except WebSocketDisconnect:
+                    break
+        finally:
+            # Unsubscribe on disconnect
+            await verification_service.broadcaster.unsubscribe(job_id, websocket)
 
     @app.get("/api/verification-results/{job_id}")  # type: ignore[misc]
     async def get_verification_results(job_id: str) -> dict[str, Any]:

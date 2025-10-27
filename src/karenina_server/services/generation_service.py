@@ -12,10 +12,15 @@ from karenina.answers.generator import generate_answer_template
 from karenina.utils.async_utils import AsyncConfig, execute_with_config
 from karenina.utils.code_parser import extract_and_combine_codeblocks
 
+from .progress_broadcaster import ProgressBroadcaster
+
 if TYPE_CHECKING:
     pass
 
 ConfigType: TypeAlias = dict[str, Any]
+
+# EMA smoothing factor for time-per-item estimation
+PROGRESS_EMA_ALPHA = 0.3
 
 
 class TemplateGenerationJob:
@@ -51,6 +56,11 @@ class TemplateGenerationJob:
         self.current_question = ""
         self.estimated_time_remaining: float | None = None
 
+        # WebSocket streaming progress fields
+        self.in_progress_questions: list[str] = []
+        self.ema_seconds_per_item: float = 0.0
+        self.last_update_ts: float | None = None
+
         # Results
         self.results: dict[str, Any] = {}
         self.result: dict[str, Any] | None = None
@@ -68,6 +78,9 @@ class TemplateGenerationJob:
             "error_message": self.error_message,
             "start_time": self.start_time,
             "end_time": self.end_time,
+            # WebSocket streaming fields
+            "in_progress_questions": self.in_progress_questions,
+            "ema_seconds_per_item": self.ema_seconds_per_item,
         }
 
     def _estimate_remaining_time(self) -> int | None:
@@ -83,6 +96,45 @@ class TemplateGenerationJob:
         remaining_questions = self.total_questions - self.processed_count
         return int(avg_time_per_question * remaining_questions)
 
+    def task_started(self, question_id: str) -> None:
+        """Mark a task as started and add to in-progress list."""
+        if question_id not in self.in_progress_questions:
+            self.in_progress_questions.append(question_id)
+        self.last_update_ts = time.time()
+
+    def task_finished(self, question_id: str, success: bool, duration_seconds: float) -> None:
+        """Mark a task as finished, update counts and EMA."""
+        # Remove from in-progress list
+        if question_id in self.in_progress_questions:
+            self.in_progress_questions.remove(question_id)
+
+        # Update counts
+        self.processed_count += 1
+        if success:
+            self.successful_count += 1
+        else:
+            self.failed_count += 1
+
+        # Update EMA for time estimation
+        if self.ema_seconds_per_item == 0.0:
+            # First item: initialize EMA with actual duration
+            self.ema_seconds_per_item = duration_seconds
+        else:
+            # Update EMA: new_ema = alpha * current + (1 - alpha) * previous
+            self.ema_seconds_per_item = (
+                PROGRESS_EMA_ALPHA * duration_seconds + (1 - PROGRESS_EMA_ALPHA) * self.ema_seconds_per_item
+            )
+
+        # Calculate estimated remaining time using EMA
+        remaining_questions = self.total_questions - self.processed_count
+        self.estimated_time_remaining = self.ema_seconds_per_item * remaining_questions
+
+        # Update percentage
+        self.percentage = (self.processed_count / self.total_questions) * 100 if self.total_questions > 0 else 0.0
+
+        # Update timestamp
+        self.last_update_ts = time.time()
+
 
 class GenerationService:
     """Service for managing template generation jobs."""
@@ -91,6 +143,7 @@ class GenerationService:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.jobs: dict[str, TemplateGenerationJob] = {}
         self.futures: dict[str, Any] = {}  # Add missing futures dict
+        self.broadcaster = ProgressBroadcaster()
 
     def start_generation(
         self,
@@ -140,6 +193,31 @@ class GenerationService:
         if job and job.status == "completed":
             return job.results
         return None
+
+    def _emit_progress_event(self, job_id: str, event_type: str, extra_data: dict[str, Any] | None = None) -> None:
+        """Emit a progress event to WebSocket subscribers."""
+        job = self.jobs.get(job_id)
+        if not job:
+            return
+
+        event_data = {
+            "type": event_type,
+            "job_id": job_id,
+            "status": job.status,
+            "percentage": job.percentage,
+            "processed": job.processed_count,
+            "total": job.total_questions,
+            "in_progress_questions": job.in_progress_questions,
+            "ema_seconds_per_item": job.ema_seconds_per_item,
+            "estimated_time_remaining": job.estimated_time_remaining,
+            "current_question": job.current_question,
+        }
+
+        if extra_data:
+            event_data.update(extra_data)
+
+        # Broadcast from thread (thread-safe)
+        self.broadcaster.broadcast_from_thread(job_id, event_data)
 
     def cleanup_old_jobs(self, max_age_hours: int = 24) -> None:
         """Clean up old jobs to prevent memory leaks."""
@@ -244,6 +322,7 @@ class GenerationService:
         try:
             job.status = "running"
             job.start_time = time.time()
+            self._emit_progress_event(job.job_id, "job_started")
 
             # Extract config values
             config = job.config
@@ -286,6 +365,24 @@ class GenerationService:
                 def progress_callback(percentage: float, message: str) -> None:
                     self._update_job_progress(percentage, message)
 
+                # Track when tasks start and complete
+                task_start_times: dict[str, float] = {}
+
+                def on_task_start(task: dict[str, Any]) -> None:
+                    question_id = task["question_id"]
+                    job.task_started(question_id)
+                    task_start_times[question_id] = time.time()
+                    self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
+
+                def on_task_done(task: dict[str, Any], result: dict[str, Any] | Exception) -> None:
+                    question_id = task["question_id"]
+                    task_duration = time.time() - task_start_times.get(question_id, time.time())
+                    success = not isinstance(result, Exception) and result.get("success", False)
+                    job.task_finished(question_id, success, task_duration)
+                    self._emit_progress_event(
+                        job.job_id, "task_completed", {"question_id": question_id, "success": success}
+                    )
+
                 try:
                     results = asyncio.run(
                         execute_with_config(
@@ -293,12 +390,15 @@ class GenerationService:
                             sync_function=self._generate_single_template,
                             config=job.async_config,
                             progress_callback=progress_callback,
+                            on_task_start=on_task_start,
+                            on_task_done=on_task_done,
                         )
                     )
                 except Exception as e:
                     job.status = "failed"
                     job.error_message = f"Async execution failed: {str(e)}"
                     job.end_time = time.time()
+                    self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
                     return
             else:
                 # Sync execution: simple loop (original behavior)
@@ -306,30 +406,30 @@ class GenerationService:
                 for _i, task in enumerate(generation_tasks):
                     if job.cancelled:
                         job.status = "cancelled"
+                        self._emit_progress_event(job.job_id, "job_cancelled")
                         return
 
+                    question_id = task["question_id"]
                     question_data = task["question_data"]
                     job.current_question = question_data.get("question", "Unknown question")[:50] + "..."
 
+                    # Track task start
+                    job.task_started(question_id)
+                    self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
+                    task_start_time = time.time()
+
+                    # Generate template
                     result = self._generate_single_template(task)
                     results.append(result)
 
-                    job.processed_count += 1
-                    if result.get("success", False):
-                        job.successful_count += 1
-                    else:
-                        job.failed_count += 1
-
-                    # Update progress
-                    job.percentage = (job.processed_count / job.total_questions) * 100
-
-                    # Calculate time estimates
-                    if job.start_time is not None:
-                        elapsed_time = time.time() - job.start_time
-                        if job.processed_count > 0:
-                            avg_time_per_question = elapsed_time / job.processed_count
-                            remaining_questions = job.total_questions - job.processed_count
-                            job.estimated_time_remaining = avg_time_per_question * remaining_questions
+                    # Track task completion
+                    task_duration = time.time() - task_start_time
+                    job.task_finished(question_id, result.get("success", False), task_duration)
+                    self._emit_progress_event(
+                        job.job_id,
+                        "task_completed",
+                        {"question_id": question_id, "success": result.get("success", False)},
+                    )
 
             # Process results and update job
             for result in results:
@@ -337,19 +437,21 @@ class GenerationService:
                     # Handle exceptions from async execution
                     question_id = "unknown"
                     job.results[question_id] = {"success": False, "error": str(result), "template_code": ""}
-                    job.failed_count += 1
+                    # Only increment if not already counted by task_finished()
+                    if not job.async_config.enabled:
+                        job.failed_count += 1
                 else:
                     question_id = result["question_id"]
                     job.results[question_id] = result
-                    if not job.async_config.enabled:
-                        # Counts already updated in sync mode
-                        continue
 
-                    job.processed_count += 1
-                    if result.get("success", False):
-                        job.successful_count += 1
-                    else:
-                        job.failed_count += 1
+                    # Only update counts if async is disabled
+                    # In async mode, counts are already updated by task_finished() callbacks
+                    if not job.async_config.enabled:
+                        job.processed_count += 1
+                        if result.get("success", False):
+                            job.successful_count += 1
+                        else:
+                            job.failed_count += 1
 
             # Job completed successfully
             job.status = "completed"
@@ -357,20 +459,32 @@ class GenerationService:
             job.percentage = 100.0
 
             # Create final result
-            total_time = (job.end_time or 0) - (job.start_time or 0)
+            # Use EMA for average time (represents per-item average)
+            # Fall back to wall-clock time / questions for sync mode or if EMA not available
+            if job.ema_seconds_per_item > 0:
+                average_time = job.ema_seconds_per_item
+            else:
+                total_time = (job.end_time or 0) - (job.start_time or 0)
+                average_time = total_time / job.total_questions if job.total_questions > 0 else 0
+
             job.result = {
                 "templates": job.results,
                 "total_templates": job.total_questions,
                 "successful_generations": job.successful_count,
                 "failed_generations": job.failed_count,
-                "average_generation_time": total_time / job.total_questions if job.total_questions > 0 else 0,
+                "average_generation_time": average_time,
                 "model_info": {"name": model_name, "provider": model_provider, "temperature": temperature},
             }
+
+            # Emit completion event
+            self._emit_progress_event(job.job_id, "job_completed")
 
         except Exception as e:
             job.status = "failed"
             job.error_message = str(e)
             job.end_time = time.time()
+            # Emit failure event
+            self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
         finally:
             # Clean up reference to current job
             if hasattr(self, "_current_job"):
@@ -395,6 +509,9 @@ class GenerationService:
             "error_message": job.error_message,
             "start_time": job.start_time,
             "end_time": job.end_time,
+            # WebSocket streaming fields
+            "in_progress_questions": job.in_progress_questions,
+            "ema_seconds_per_item": job.ema_seconds_per_item,
         }
 
     def generate_rubric_traits(
