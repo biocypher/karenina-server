@@ -28,6 +28,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             import json
 
             from karenina.benchmark.models import FinishedTemplate, VerificationConfig
+            from karenina.schemas import ManualRubricTrait, MetricRubricTrait, Rubric, RubricTrait
             from karenina.utils.async_utils import AsyncConfig
 
             # Parse request
@@ -68,9 +69,35 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             # Create finished templates (needed for rubric validation)
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
 
+            # Convert question_rubric dicts to Rubric objects
+            for template in finished_templates:
+                if template.question_rubric:
+                    rubric_dict = template.question_rubric
+
+                    # Parse traits
+                    traits = [RubricTrait(**trait_data) for trait_data in rubric_dict.get("traits", [])]
+
+                    # Parse manual_traits
+                    manual_traits = [
+                        ManualRubricTrait(**trait_data) for trait_data in rubric_dict.get("manual_traits", [])
+                    ]
+
+                    # Parse metric_traits
+                    metric_traits = [
+                        MetricRubricTrait(**trait_data) for trait_data in rubric_dict.get("metric_traits", [])
+                    ]
+
+                    # Create Rubric object
+                    rubric = Rubric(traits=traits, manual_traits=manual_traits, metric_traits=metric_traits)
+
+                    # Replace dict with Rubric object (direct attribute assignment)
+                    template.question_rubric = rubric
+
             # DEBUG: Log parsed templates
             templates_with_metric_traits_parsed = [
-                t for t in finished_templates if t.question_rubric and t.question_rubric.metric_traits
+                t
+                for t in finished_templates
+                if t.question_rubric and hasattr(t.question_rubric, "metric_traits") and t.question_rubric.metric_traits
             ]
             print(f"  Parsed templates with metric traits: {len(templates_with_metric_traits_parsed)}")
             if templates_with_metric_traits_parsed:
