@@ -25,6 +25,8 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
     async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Start verification job."""
         try:
+            import json
+
             from karenina.benchmark.models import FinishedTemplate, VerificationConfig
             from karenina.utils.async_utils import AsyncConfig
 
@@ -37,6 +39,24 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             storage_url = request.get("storage_url")  # Optional database URL for auto-save
             benchmark_name = request.get("benchmark_name")  # Optional benchmark name for auto-save
 
+            # DEBUG: Log what backend receives
+            print("🔍 Backend: Received verification request")
+            print(f"  Rubric enabled in config? {config_data.get('rubric_enabled', False)}")
+
+            # Check if any templates have metric traits
+            templates_with_metric_traits = [
+                t
+                for t in finished_templates_data
+                if t.get("question_rubric") and t.get("question_rubric", {}).get("metric_traits")
+            ]
+            print(
+                f"  Templates with metric traits: {len(templates_with_metric_traits)} / {len(finished_templates_data)}"
+            )
+
+            if templates_with_metric_traits:
+                sample = templates_with_metric_traits[0]
+                print(f"  Sample metric trait: {json.dumps(sample['question_rubric']['metric_traits'][0], indent=2)}")
+
             # Create config
             config = VerificationConfig(**config_data)
 
@@ -47,6 +67,16 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
             # Create finished templates (needed for rubric validation)
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
+
+            # DEBUG: Log parsed templates
+            templates_with_metric_traits_parsed = [
+                t for t in finished_templates if t.question_rubric and t.question_rubric.metric_traits
+            ]
+            print(f"  Parsed templates with metric traits: {len(templates_with_metric_traits_parsed)}")
+            if templates_with_metric_traits_parsed:
+                sample = templates_with_metric_traits_parsed[0]
+                print(f"  Sample parsed metric trait name: {sample.question_rubric.metric_traits[0].name}")
+                print(f"  Sample evaluation_mode: {sample.question_rubric.metric_traits[0].evaluation_mode}")
 
             # Validate rubric availability if rubric evaluation is enabled
             if getattr(config, "rubric_enabled", False):
