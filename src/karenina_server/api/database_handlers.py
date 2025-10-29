@@ -308,11 +308,12 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    from karenina.schemas.rubric_class import ManualRubricTrait
+                    from karenina.schemas.rubric_class import ManualRubricTrait, MetricRubricTrait
 
                     rubric_data = q_data["question_rubric"]
                     traits = []
                     manual_traits = []
+                    metric_traits = []
 
                     # Process LLM-based traits
                     for trait_data in rubric_data.get("traits", []):
@@ -344,8 +345,21 @@ def register_database_routes(
                         )
                         manual_traits.append(manual_trait)
 
-                    if traits or manual_traits:
-                        rubric = Rubric(traits=traits, manual_traits=manual_traits)
+                    # Process metric traits
+                    for metric_trait_data in rubric_data.get("metric_traits", []):
+                        metric_trait = MetricRubricTrait(
+                            name=metric_trait_data["name"],
+                            description=metric_trait_data.get("description"),
+                            evaluation_mode=metric_trait_data.get("evaluation_mode", "tp_only"),
+                            metrics=metric_trait_data.get("metrics", []),
+                            tp_instructions=metric_trait_data.get("tp_instructions", []),
+                            tn_instructions=metric_trait_data.get("tn_instructions", []),
+                            repeated_extraction=metric_trait_data.get("repeated_extraction", True),
+                        )
+                        metric_traits.append(metric_trait)
+
+                    if traits or manual_traits or metric_traits:
+                        rubric = Rubric(traits=traits, manual_traits=manual_traits, metric_traits=metric_traits)
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
@@ -481,11 +495,12 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    from karenina.schemas.rubric_class import ManualRubricTrait
+                    from karenina.schemas.rubric_class import ManualRubricTrait, MetricRubricTrait
 
                     rubric_data = q_data["question_rubric"]
                     traits = []
                     manual_traits = []
+                    metric_traits = []
 
                     # Process LLM-based traits
                     for trait_data in rubric_data.get("traits", []):
@@ -517,8 +532,21 @@ def register_database_routes(
                         )
                         manual_traits.append(manual_trait)
 
-                    if traits or manual_traits:
-                        rubric = Rubric(traits=traits, manual_traits=manual_traits)
+                    # Process metric traits
+                    for metric_trait_data in rubric_data.get("metric_traits", []):
+                        metric_trait = MetricRubricTrait(
+                            name=metric_trait_data["name"],
+                            description=metric_trait_data.get("description"),
+                            evaluation_mode=metric_trait_data.get("evaluation_mode", "tp_only"),
+                            metrics=metric_trait_data.get("metrics", []),
+                            tp_instructions=metric_trait_data.get("tp_instructions", []),
+                            tn_instructions=metric_trait_data.get("tn_instructions", []),
+                            repeated_extraction=metric_trait_data.get("repeated_extraction", True),
+                        )
+                        metric_traits.append(metric_trait)
+
+                    if traits or manual_traits or metric_traits:
+                        rubric = Rubric(traits=traits, manual_traits=manual_traits, metric_traits=metric_traits)
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
