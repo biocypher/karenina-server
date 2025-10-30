@@ -5,8 +5,7 @@ API handlers for rubric management.
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from karenina.schemas import Rubric, RubricTrait
-from karenina.schemas.question_class import Question
+from karenina.schemas import Question, Rubric, RubricTrait
 from pydantic import BaseModel
 
 from karenina_server.services.generation_service import GenerationService

@@ -6,9 +6,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from karenina.benchmark.models import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
-from karenina.benchmark.verification.orchestrator import run_question_verification
-from karenina.schemas.rubric_class import Rubric
+from karenina.benchmark.verification.multi_model_orchestrator import run_question_verification
+from karenina.schemas.domain import Rubric
+from karenina.schemas.workflow import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
 from karenina.utils.async_utils import AsyncConfig
 
 from .progress_broadcaster import ProgressBroadcaster
@@ -176,7 +176,7 @@ class VerificationService:
                         logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
 
                 try:
-                    from karenina.schemas.rubric_class import merge_rubrics
+                    from karenina.schemas import merge_rubrics
 
                     merged_rubric = merge_rubrics(global_rubric, question_rubric)
                 except ValueError as e:
