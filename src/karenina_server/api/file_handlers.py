@@ -11,14 +11,14 @@ from fastapi import File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 try:
-    from karenina.questions.extractor import extract_and_generate_questions, get_file_preview
+    from karenina.domain.questions.extractor import extract_and_generate_questions, get_file_preview
 
     EXTRACTOR_AVAILABLE = True
 except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 try:
-    from karenina.llm.manual_traces import ManualTraceError, get_manual_trace_count, load_manual_traces
+    from karenina.infrastructure.llm.manual_traces import ManualTraceError, get_manual_trace_count, load_manual_traces
 
     MANUAL_TRACES_AVAILABLE = True
 except ImportError:

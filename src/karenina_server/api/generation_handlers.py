@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
 try:
-    import karenina.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
 
     LLM_AVAILABLE = True
 except ImportError:

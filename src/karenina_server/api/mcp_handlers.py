@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    import karenina.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -78,7 +78,7 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
             raise HTTPException(status_code=503, detail="LLM functionality not available")
 
         try:
-            from karenina.llm.mcp_utils import create_mcp_client_and_tools
+            from karenina.infrastructure.llm.mcp_utils import create_mcp_client_and_tools
 
             # Create MCP URLs dict for the single server
             mcp_urls_dict = {request.server_name: request.server_url}

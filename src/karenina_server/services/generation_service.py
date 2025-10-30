@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Type alias for config - using TYPE_CHECKING to avoid circular imports
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from karenina.answers.generator import generate_answer_template
+from karenina.domain.answers.generator import generate_answer_template
 from karenina.utils.async_utils import AsyncConfig, execute_with_config
 from karenina.utils.code_parser import extract_and_combine_codeblocks
 
@@ -532,7 +532,7 @@ class GenerationService:
         # Generate response using appropriate interface
         if interface == "openrouter":
             # Use init_chat_model_unified for OpenRouter
-            from karenina.llm.interface import call_model, init_chat_model_unified
+            from karenina.infrastructure.llm.interface import call_model, init_chat_model_unified
 
             chat_model = init_chat_model_unified(
                 provider="",  # Empty provider for OpenRouter
@@ -546,7 +546,7 @@ class GenerationService:
             return str(response.content)
         else:
             # Use call_model for langchain interface
-            from karenina.llm.interface import call_model
+            from karenina.infrastructure.llm.interface import call_model
 
             response = call_model(
                 model=model_name,

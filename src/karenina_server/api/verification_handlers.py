@@ -27,8 +27,8 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         try:
             import json
 
-            from karenina.benchmark.models import FinishedTemplate, VerificationConfig
             from karenina.schemas import ManualRubricTrait, MetricRubricTrait, Rubric, RubricTrait
+            from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
             from karenina.utils.async_utils import AsyncConfig
 
             # Parse request

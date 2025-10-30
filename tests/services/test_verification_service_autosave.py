@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from karenina.benchmark.models import FinishedTemplate, VerificationConfig
+from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ class TestAutoSaveEnabled:
 
         # Mock run_question_verification to avoid actual LLM calls
         with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
-            from karenina.benchmark.models import VerificationResult
+            from karenina.schemas.workflow import VerificationResult
 
             mock_result = VerificationResult(
                 question_id="test_q1",
@@ -123,7 +123,7 @@ class TestAutoSaveEnabled:
         service = VerificationService()
 
         with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
-            from karenina.benchmark.models import VerificationResult
+            from karenina.schemas.workflow import VerificationResult
 
             mock_result = VerificationResult(
                 question_id="test_q1",
@@ -183,7 +183,7 @@ class TestAutoSaveDisabled:
         service = VerificationService()
 
         with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
-            from karenina.benchmark.models import VerificationResult
+            from karenina.schemas.workflow import VerificationResult
 
             mock_result = VerificationResult(
                 question_id="test_q1",
@@ -230,7 +230,7 @@ class TestAutoSaveDisabled:
         service = VerificationService()
 
         with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
-            from karenina.benchmark.models import VerificationResult
+            from karenina.schemas.workflow import VerificationResult
 
             mock_result = VerificationResult(
                 question_id="test_q1",
@@ -276,7 +276,7 @@ class TestAutoSaveErrorHandling:
         service = VerificationService()
 
         with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
-            from karenina.benchmark.models import VerificationResult
+            from karenina.schemas.workflow import VerificationResult
 
             mock_result = VerificationResult(
                 question_id="test_q1",
