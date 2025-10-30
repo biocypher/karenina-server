@@ -34,7 +34,7 @@ def generate_python_questions_file(questions_data: dict[str, Any]) -> str:
     # Header
     content = '''"""Auto-generated questions from extracted data."""
 
-from karenina.schemas.question_class import Question
+from karenina.schemas import Question
 
 # Auto-generated questions
 

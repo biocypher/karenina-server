@@ -270,8 +270,7 @@ def register_database_routes(
         try:
             # Import required classes
             from karenina.benchmark.benchmark import Benchmark
-            from karenina.schemas.question_class import Question
-            from karenina.schemas.rubric_class import Rubric, RubricTrait
+            from karenina.schemas import Question, Rubric, RubricTrait
 
             db_config = DBConfig(storage_url=request.storage_url)
 
@@ -308,7 +307,7 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    from karenina.schemas.rubric_class import ManualRubricTrait, MetricRubricTrait
+                    from karenina.schemas import ManualRubricTrait, MetricRubricTrait
 
                     rubric_data = q_data["question_rubric"]
                     traits = []
@@ -364,7 +363,7 @@ def register_database_routes(
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas.rubric_class import ManualRubricTrait
+                from karenina.schemas import ManualRubricTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
@@ -442,8 +441,7 @@ def register_database_routes(
         try:
             # Import required classes
             from karenina.benchmark.benchmark import Benchmark
-            from karenina.schemas.question_class import Question
-            from karenina.schemas.rubric_class import Rubric, RubricTrait
+            from karenina.schemas import Question, Rubric, RubricTrait
 
             db_config = DBConfig(storage_url=request.storage_url)
 
@@ -495,7 +493,7 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    from karenina.schemas.rubric_class import ManualRubricTrait, MetricRubricTrait
+                    from karenina.schemas import ManualRubricTrait, MetricRubricTrait
 
                     rubric_data = q_data["question_rubric"]
                     traits = []
@@ -551,7 +549,7 @@ def register_database_routes(
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas.rubric_class import ManualRubricTrait
+                from karenina.schemas import ManualRubricTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []

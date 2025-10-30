@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 from karenina.domain.answers.generator import generate_answer_template
 from karenina.utils.async_utils import AsyncConfig, execute_with_config
-from karenina.utils.code_parser import extract_and_combine_codeblocks
+from karenina.utils.code import extract_and_combine_codeblocks
 
 from .progress_broadcaster import ProgressBroadcaster
 

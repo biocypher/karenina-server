@@ -176,7 +176,7 @@ class VerificationService:
                         logger.warning(f"Failed to parse question rubric for {template.question_id}: {e}")
 
                 try:
-                    from karenina.schemas.rubric_class import merge_rubrics
+                    from karenina.schemas import merge_rubrics
 
                     merged_rubric = merge_rubrics(global_rubric, question_rubric)
                 except ValueError as e:
