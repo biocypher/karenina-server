@@ -30,10 +30,11 @@ class DefaultsService:
         self.defaults_file_path = self._validate_file_path(defaults_file_path)
 
         # Hardcoded fallback defaults
-        self.fallback_defaults = {
+        self.fallback_defaults: dict[str, str | None] = {
             "default_interface": "langchain",
             "default_provider": "google_genai",
             "default_model": "gemini-pro",
+            "default_endpoint_base_url": None,
         }
 
     def _validate_file_path(self, file_path: Path) -> Path:
@@ -92,7 +93,7 @@ class DefaultsService:
                 raise e
             raise ValueError(f"Invalid file path: {e}")
 
-    def _validate_defaults(self, defaults: dict[str, str]) -> tuple[bool, str | None]:
+    def _validate_defaults(self, defaults: dict[str, str | None]) -> tuple[bool, str | None]:
         """Validate default configuration values.
 
         Args:
@@ -109,9 +110,25 @@ class DefaultsService:
                 return False, f"Missing required field: {field}"
 
         # Validate interface
-        valid_interfaces = ["langchain", "openrouter"]
+        valid_interfaces = ["langchain", "openrouter", "openai_endpoint"]
         if defaults["default_interface"] not in valid_interfaces:
             return False, f"Invalid interface. Must be one of: {', '.join(valid_interfaces)}"
+
+        # For openai_endpoint, require endpoint_base_url
+        if defaults["default_interface"] == "openai_endpoint":
+            endpoint_url = defaults.get("default_endpoint_base_url")
+            if not endpoint_url:
+                return False, "endpoint_base_url is required for openai_endpoint interface"
+
+            # Validate URL format
+            try:
+                from urllib.parse import urlparse
+
+                result = urlparse(endpoint_url)
+                if not all([result.scheme, result.netloc]):
+                    return False, "Invalid endpoint_base_url format (must include scheme and host)"
+            except Exception:
+                return False, "Invalid endpoint_base_url format"
 
         # Validate provider (basic string validation)
         provider = defaults["default_provider"]
@@ -125,7 +142,7 @@ class DefaultsService:
 
         return True, None
 
-    def get_defaults(self) -> dict[str, str]:
+    def get_defaults(self) -> dict[str, str | None]:
         """Get current default configuration.
 
         Returns:
@@ -144,6 +161,7 @@ class DefaultsService:
                         "default_interface": saved_defaults["default_interface"],
                         "default_provider": saved_defaults["default_provider"],
                         "default_model": saved_defaults["default_model"],
+                        "default_endpoint_base_url": saved_defaults.get("default_endpoint_base_url"),
                     }
                 else:
                     logger.warning(f"Invalid saved defaults: {error}, using fallback")
@@ -155,7 +173,7 @@ class DefaultsService:
         logger.info("Using fallback defaults")
         return self.fallback_defaults.copy()
 
-    def save_defaults(self, defaults: dict[str, str]) -> None:
+    def save_defaults(self, defaults: dict[str, str | None]) -> None:
         """Save default configuration to file.
 
         Args:
@@ -179,6 +197,7 @@ class DefaultsService:
                 "default_interface": defaults["default_interface"],
                 "default_provider": defaults["default_provider"],
                 "default_model": defaults["default_model"],
+                "default_endpoint_base_url": defaults.get("default_endpoint_base_url"),
                 "saved_at": datetime.utcnow().isoformat() + "Z",
             }
 
