@@ -184,17 +184,40 @@ class VerificationService:
             def progress_callback(current: int, total: int, result: VerificationResult | None) -> None:
                 """Update job progress and broadcast to WebSocket subscribers."""
                 if result:
-                    # Task is starting
-                    job.task_started(result.question_id)
-                    job.current_question = result.question_id
-                    job.percentage = ((current - 1) / total) * 100 if total > 0 else 0
+                    # Distinguish between starting and completion events by timestamp
+                    # Empty timestamp = starting, non-empty = completion
+                    if not result.timestamp or result.timestamp == "":
+                        # Task is starting
+                        job.task_started(result.question_id)
+                        job.current_question = result.question_id
+                        job.percentage = ((current - 1) / total) * 100 if total > 0 else 0
 
-                    # Broadcast progress update
-                    self._emit_progress_event(
-                        job.job_id,
-                        "task_started",
-                        {"question_id": result.question_id, "current": current, "total": total},
-                    )
+                        # Broadcast task started event
+                        self._emit_progress_event(
+                            job.job_id,
+                            "task_started",
+                            {"question_id": result.question_id, "current": current, "total": total},
+                        )
+                    else:
+                        # Task is finished
+                        # Calculate duration (we don't have start time, so use execution_time from result)
+                        duration_seconds = result.execution_time
+                        success = result.completed_without_errors
+
+                        job.task_finished(result.question_id, success, duration_seconds)
+                        job.percentage = (current / total) * 100 if total > 0 else 0
+
+                        # Broadcast task completed event
+                        self._emit_progress_event(
+                            job.job_id,
+                            "task_completed",
+                            {
+                                "question_id": result.question_id,
+                                "current": current,
+                                "total": total,
+                                "success": success,
+                            },
+                        )
 
             # Run verification using batch runner
             # Note: batch runner handles task generation, execution, and auto-save
