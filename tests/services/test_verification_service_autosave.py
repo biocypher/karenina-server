@@ -142,19 +142,11 @@ class TestAutoSaveEnabled:
 
         service = VerificationService()
 
-        # Mock _execute_task to avoid actual LLM calls
-        def mock_execute_task(task):
-            import time
-
+        # Mock run_single_model_verification to avoid actual LLM calls
+        def mock_run_single_verification(**kwargs):
             from karenina.schemas.workflow import VerificationResult
 
-            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
-            if task["replicate"] is not None:
-                key_parts.append(f"rep{task['replicate']}")
-            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
-            result_key = "_".join(key_parts)
-
-            result = VerificationResult(
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
                 completed_without_errors=True,
@@ -165,9 +157,11 @@ class TestAutoSaveEnabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            return result_key, result
 
-        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
@@ -211,19 +205,11 @@ class TestAutoSaveDisabled:
 
         service = VerificationService()
 
-        # Mock _execute_task to avoid actual LLM calls
-        def mock_execute_task(task):
-            import time
-
+        # Mock run_single_model_verification to avoid actual LLM calls
+        def mock_run_single_verification(**kwargs):
             from karenina.schemas.workflow import VerificationResult
 
-            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
-            if task["replicate"] is not None:
-                key_parts.append(f"rep{task['replicate']}")
-            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
-            result_key = "_".join(key_parts)
-
-            result = VerificationResult(
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
                 completed_without_errors=True,
@@ -234,9 +220,11 @@ class TestAutoSaveDisabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            return result_key, result
 
-        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
@@ -267,19 +255,11 @@ class TestAutoSaveDisabled:
 
         service = VerificationService()
 
-        # Mock _execute_task to avoid actual LLM calls
-        def mock_execute_task(task):
-            import time
-
+        # Mock run_single_model_verification to avoid actual LLM calls
+        def mock_run_single_verification(**kwargs):
             from karenina.schemas.workflow import VerificationResult
 
-            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
-            if task["replicate"] is not None:
-                key_parts.append(f"rep{task['replicate']}")
-            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
-            result_key = "_".join(key_parts)
-
-            result = VerificationResult(
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
                 completed_without_errors=True,
@@ -290,9 +270,11 @@ class TestAutoSaveDisabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            return result_key, result
 
-        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             # No storage_url provided
             job_id = service.start_verification(
                 finished_templates=[sample_template],
@@ -322,19 +304,11 @@ class TestAutoSaveErrorHandling:
 
         service = VerificationService()
 
-        # Mock _execute_task to avoid actual LLM calls
-        def mock_execute_task(task):
-            import time
-
+        # Mock run_single_model_verification to avoid actual LLM calls
+        def mock_run_single_verification(**kwargs):
             from karenina.schemas.workflow import VerificationResult
 
-            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
-            if task["replicate"] is not None:
-                key_parts.append(f"rep{task['replicate']}")
-            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
-            result_key = "_".join(key_parts)
-
-            result = VerificationResult(
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
                 completed_without_errors=True,
@@ -345,9 +319,11 @@ class TestAutoSaveErrorHandling:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            return result_key, result
 
-        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             # Provide invalid storage URL to trigger save error
             job_id = service.start_verification(
                 finished_templates=[sample_template],

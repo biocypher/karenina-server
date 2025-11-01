@@ -264,19 +264,11 @@ class TestAsyncControl:
 
         execution_order = []
 
-        def mock_execute_task(task):
+        def mock_run_single_verification(**kwargs):
             execution_order.append(time.time())
             time.sleep(0.01)  # Small delay to ensure sequential execution is detectable
 
-            import time as t
-
-            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
-            if task["replicate"] is not None:
-                key_parts.append(f"rep{task['replicate']}")
-            key_parts.extend([task["job_id"][:8], str(int(t.time() * 1000))])
-            result_key = "_".join(key_parts)
-
-            result = VerificationResult(
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
                 completed_without_errors=True,
@@ -287,9 +279,11 @@ class TestAsyncControl:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            return result_key, result
 
-        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=multi_model_config,
@@ -317,16 +311,8 @@ class TestResultAccumulation:
 
         service = VerificationService()
 
-        def mock_execute_task(task):
-            import time
-
-            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
-            if task["replicate"] is not None:
-                key_parts.append(f"rep{task['replicate']}")
-            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
-            result_key = "_".join(key_parts)
-
-            result = VerificationResult(
+        def mock_run_single_verification(**kwargs):
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
                 completed_without_errors=True,
@@ -337,9 +323,11 @@ class TestResultAccumulation:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            return result_key, result
 
-        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             # Run 1
             job_id_1 = service.start_verification(
                 finished_templates=[sample_template],

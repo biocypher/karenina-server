@@ -180,6 +180,22 @@ class VerificationService:
             # Emit job started
             self._emit_progress_event(job.job_id, "job_started")
 
+            # Create progress callback to track task status and broadcast updates
+            def progress_callback(current: int, total: int, result: VerificationResult | None) -> None:
+                """Update job progress and broadcast to WebSocket subscribers."""
+                if result:
+                    # Task is starting
+                    job.task_started(result.question_id)
+                    job.current_question = result.question_id
+                    job.percentage = ((current - 1) / total) * 100 if total > 0 else 0
+
+                    # Broadcast progress update
+                    self._emit_progress_event(
+                        job.job_id,
+                        "task_started",
+                        {"question_id": result.question_id, "current": current, "total": total},
+                    )
+
             # Run verification using batch runner
             # Note: batch runner handles task generation, execution, and auto-save
             results = run_verification_batch(
@@ -192,7 +208,7 @@ class VerificationService:
                 max_workers=None,  # Let batch_runner read from env
                 storage_url=job.storage_url,
                 benchmark_name=job.benchmark_name,
-                progress_callback=None,  # TODO: Add progress callback for real-time updates
+                progress_callback=progress_callback,
             )
 
             # Update job with results
