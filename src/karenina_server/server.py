@@ -11,6 +11,11 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env from project root
+
 # FastAPI imports
 try:
     import uvicorn

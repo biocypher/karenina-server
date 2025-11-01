@@ -38,11 +38,29 @@ def sample_template():
 @pytest.fixture
 def basic_config():
     """Create a basic verification config."""
+    from karenina.schemas.workflow import ModelConfig
+
     return VerificationConfig(
-        answering_model_provider="openai",
-        answering_model_name="gpt-4.1-mini",
-        parsing_model_provider="openai",
-        parsing_model_name="gpt-4.1-mini",
+        answering_models=[
+            ModelConfig(
+                id="test-answering",
+                model_provider="openai",
+                model_name="gpt-4.1-mini",
+                interface="langchain",
+                temperature=0.0,
+                system_prompt="You are a helpful assistant.",
+            )
+        ],
+        parsing_models=[
+            ModelConfig(
+                id="test-parsing",
+                model_provider="openai",
+                model_name="gpt-4.1-mini",
+                interface="langchain",
+                temperature=0.0,
+                system_prompt="You are a validation assistant.",
+            )
+        ],
         replicate_count=1,
     )
 
@@ -64,15 +82,14 @@ class TestAutoSaveEnabled:
 
         service = VerificationService()
 
-        # Mock run_question_verification to avoid actual LLM calls
-        with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
+        # Mock run_single_model_verification to avoid actual LLM calls
+        def mock_run_single_verification(**kwargs):
             from karenina.schemas.workflow import VerificationResult
 
-            mock_result = VerificationResult(
+            return VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
-                success=True,
-                verified=True,
+                completed_without_errors=True,
                 question_text="What is 2+2?",
                 raw_llm_response='{"result": 4}',
                 answering_model="openai/gpt-4.1-mini",
@@ -80,8 +97,11 @@ class TestAutoSaveEnabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            mock_verify.return_value = {"test_q1": mock_result}
 
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
             # Start verification with storage_url and benchmark_name
             job_id = service.start_verification(
                 finished_templates=[sample_template],
@@ -122,14 +142,22 @@ class TestAutoSaveEnabled:
 
         service = VerificationService()
 
-        with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
+        # Mock _execute_task to avoid actual LLM calls
+        def mock_execute_task(task):
+            import time
+
             from karenina.schemas.workflow import VerificationResult
 
-            mock_result = VerificationResult(
+            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
+            if task["replicate"] is not None:
+                key_parts.append(f"rep{task['replicate']}")
+            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
+            result_key = "_".join(key_parts)
+
+            result = VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
-                success=True,
-                verified=True,
+                completed_without_errors=True,
                 question_text="What is 2+2?",
                 raw_llm_response='{"result": 4}',
                 answering_model="openai/gpt-4.1-mini",
@@ -137,8 +165,9 @@ class TestAutoSaveEnabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            mock_verify.return_value = {"test_q1": mock_result}
+            return result_key, result
 
+        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
@@ -182,14 +211,22 @@ class TestAutoSaveDisabled:
 
         service = VerificationService()
 
-        with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
+        # Mock _execute_task to avoid actual LLM calls
+        def mock_execute_task(task):
+            import time
+
             from karenina.schemas.workflow import VerificationResult
 
-            mock_result = VerificationResult(
+            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
+            if task["replicate"] is not None:
+                key_parts.append(f"rep{task['replicate']}")
+            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
+            result_key = "_".join(key_parts)
+
+            result = VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
-                success=True,
-                verified=True,
+                completed_without_errors=True,
                 question_text="What is 2+2?",
                 raw_llm_response='{"result": 4}',
                 answering_model="openai/gpt-4.1-mini",
@@ -197,8 +234,9 @@ class TestAutoSaveDisabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            mock_verify.return_value = {"test_q1": mock_result}
+            return result_key, result
 
+        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
@@ -229,14 +267,22 @@ class TestAutoSaveDisabled:
 
         service = VerificationService()
 
-        with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
+        # Mock _execute_task to avoid actual LLM calls
+        def mock_execute_task(task):
+            import time
+
             from karenina.schemas.workflow import VerificationResult
 
-            mock_result = VerificationResult(
+            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
+            if task["replicate"] is not None:
+                key_parts.append(f"rep{task['replicate']}")
+            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
+            result_key = "_".join(key_parts)
+
+            result = VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
-                success=True,
-                verified=True,
+                completed_without_errors=True,
                 question_text="What is 2+2?",
                 raw_llm_response='{"result": 4}',
                 answering_model="openai/gpt-4.1-mini",
@@ -244,8 +290,9 @@ class TestAutoSaveDisabled:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            mock_verify.return_value = {"test_q1": mock_result}
+            return result_key, result
 
+        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
             # No storage_url provided
             job_id = service.start_verification(
                 finished_templates=[sample_template],
@@ -275,14 +322,22 @@ class TestAutoSaveErrorHandling:
 
         service = VerificationService()
 
-        with patch("karenina_server.services.verification_service.run_question_verification") as mock_verify:
+        # Mock _execute_task to avoid actual LLM calls
+        def mock_execute_task(task):
+            import time
+
             from karenina.schemas.workflow import VerificationResult
 
-            mock_result = VerificationResult(
+            key_parts = [task["question_id"], task["answering_model"].id, task["parsing_model"].id]
+            if task["replicate"] is not None:
+                key_parts.append(f"rep{task['replicate']}")
+            key_parts.extend([task["job_id"][:8], str(int(time.time() * 1000))])
+            result_key = "_".join(key_parts)
+
+            result = VerificationResult(
                 question_id="test_q1",
                 template_id="no_template",
-                success=True,
-                verified=True,
+                completed_without_errors=True,
                 question_text="What is 2+2?",
                 raw_llm_response='{"result": 4}',
                 answering_model="openai/gpt-4.1-mini",
@@ -290,8 +345,9 @@ class TestAutoSaveErrorHandling:
                 execution_time=1.0,
                 timestamp="2024-01-01T00:00:00",
             )
-            mock_verify.return_value = {"test_q1": mock_result}
+            return result_key, result
 
+        with patch.object(service, "_execute_task", side_effect=mock_execute_task):
             # Provide invalid storage URL to trigger save error
             job_id = service.start_verification(
                 finished_templates=[sample_template],
