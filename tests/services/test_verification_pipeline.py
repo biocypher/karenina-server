@@ -359,3 +359,155 @@ class TestResultAccumulation:
             # Each run has 6 results (2 answering × 1 parsing × 3 replicates)
             # Total should be 12
             assert len(all_results) == 12
+
+
+class TestProgressCallbacksInParallelMode:
+    """Test that progress callbacks work correctly in parallel mode."""
+
+    def test_parallel_mode_calls_progress_callback(self, sample_template, multi_model_config, monkeypatch):
+        """Test that progress callbacks are invoked in parallel mode."""
+        monkeypatch.setenv("KARENINA_ASYNC_ENABLED", "true")
+        monkeypatch.setenv("KARENINA_ASYNC_MAX_WORKERS", "2")
+
+        from karenina_server.services.verification_service import VerificationService
+
+        service = VerificationService()
+        callback_invocations = []
+
+        def mock_run_single_verification(**kwargs):
+            time.sleep(0.01)  # Small delay to simulate work
+            return VerificationResult(
+                question_id="test_q1",
+                template_id="no_template",
+                completed_without_errors=True,
+                question_text="What is 2+2?",
+                raw_llm_response='{"result": 4}',
+                answering_model="openai/gpt-4.1-mini",
+                parsing_model="openai/gpt-4.1-mini",
+                execution_time=0.01,
+                timestamp="2024-01-01T00:00:00",
+            )
+
+        # Wrap the progress callback to track invocations
+        original_callback = None
+
+        def capture_progress_callback(*args, **kwargs):
+            callback_invocations.append({"args": args, "kwargs": kwargs})
+            if original_callback:
+                return original_callback(*args, **kwargs)
+
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
+            # Start verification
+            job_id = service.start_verification(
+                finished_templates=[sample_template],
+                config=multi_model_config,
+            )
+
+            # Wait for completion
+            max_wait = 10
+            waited = 0
+            while service.jobs[job_id].status != "completed" and waited < max_wait:
+                time.sleep(0.1)
+                waited += 0.1
+
+            # Verify progress callbacks were invoked
+            # Expected: 6 tasks (2 answering × 1 parsing × 3 replicates)
+            # Each task should trigger 2 callbacks (start + finish) = 12 total
+            job = service.jobs[job_id]
+
+            # Check that EMA was updated (proves callbacks were called)
+            assert job.ema_seconds_per_item > 0, "EMA should be updated after tasks complete"
+
+            # Check that task counts were updated correctly
+            assert job.processed_count == 6, "All 6 tasks should be processed"
+            assert job.successful_count == 6, "All 6 tasks should succeed"
+
+            # ETA should be 0 when complete
+            assert job.estimated_time_remaining == 0.0, "ETA should be 0 when complete"
+
+    def test_parallel_mode_eta_estimation_accuracy(self, sample_template, monkeypatch):
+        """Test that ETA estimation works correctly in parallel mode."""
+        monkeypatch.setenv("KARENINA_ASYNC_ENABLED", "true")
+        monkeypatch.setenv("KARENINA_ASYNC_MAX_WORKERS", "3")
+
+        from karenina_server.services.verification_service import VerificationService
+
+        service = VerificationService()
+
+        # Use single model and multiple replicates for cleaner test
+        single_model_config = VerificationConfig(
+            answering_models=[
+                ModelConfig(
+                    id="answering-1",
+                    model_provider="openai",
+                    model_name="gpt-4.1-mini",
+                    interface="langchain",
+                    temperature=0.0,
+                    system_prompt="Test",
+                )
+            ],
+            parsing_models=[
+                ModelConfig(
+                    id="parsing-1",
+                    model_provider="openai",
+                    model_name="gpt-4.1-mini",
+                    interface="langchain",
+                    temperature=0.0,
+                    system_prompt="Test",
+                )
+            ],
+            replicate_count=5,
+        )
+
+        execution_count = [0]
+
+        def mock_run_single_verification(**kwargs):
+            execution_count[0] += 1
+            time.sleep(0.02)  # Consistent execution time for predictable EMA
+            return VerificationResult(
+                question_id="test_q1",
+                template_id="no_template",
+                completed_without_errors=True,
+                question_text="What is 2+2?",
+                raw_llm_response='{"result": 4}',
+                answering_model="openai/gpt-4.1-mini",
+                parsing_model="openai/gpt-4.1-mini",
+                execution_time=0.02,
+                timestamp="2024-01-01T00:00:00",
+            )
+
+        with patch(
+            "karenina.benchmark.verification.runner.run_single_model_verification",
+            side_effect=mock_run_single_verification,
+        ):
+            job_id = service.start_verification(
+                finished_templates=[sample_template],
+                config=single_model_config,
+            )
+
+            # Wait for at least 2 tasks to complete so EMA is initialized
+            time.sleep(0.1)
+
+            job = service.jobs[job_id]
+
+            # After some tasks complete, EMA should be initialized
+            # Wait for completion
+            max_wait = 10
+            waited = 0
+            while job.status != "completed" and waited < max_wait:
+                time.sleep(0.1)
+                waited += 0.1
+
+            # Verify all tasks executed
+            assert execution_count[0] == 5, "All 5 replicate tasks should execute"
+
+            # Verify EMA was calculated
+            assert job.ema_seconds_per_item > 0, "EMA should be calculated from task execution times"
+
+            # Verify final state
+            assert job.processed_count == 5
+            assert job.successful_count == 5
+            assert job.estimated_time_remaining == 0.0
