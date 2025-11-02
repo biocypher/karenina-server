@@ -62,10 +62,10 @@ def register_generation_routes(
                 current_question=progress.get("current_question", ""),
                 processed_count=progress.get("processed_count", 0),
                 total_count=progress.get("total_questions", 0),
-                estimated_time_remaining=progress.get("estimated_time_remaining"),
+                duration_seconds=progress.get("duration_seconds"),
+                last_task_duration=progress.get("last_task_duration"),
                 error=progress.get("error_message"),
                 in_progress_questions=progress.get("in_progress_questions", []),
-                ema_seconds_per_item=progress.get("ema_seconds_per_item", 0.0),
             )
 
             # Add result if completed
@@ -134,8 +134,9 @@ def register_generation_routes(
                         "processed": progress["processed_count"],
                         "total": progress["total_questions"],
                         "in_progress_questions": progress["in_progress_questions"],
-                        "ema_seconds_per_item": progress["ema_seconds_per_item"],
-                        "estimated_time_remaining": progress["estimated_time_remaining"],
+                        "start_time": progress["start_time"],  # Unix timestamp for client-side live clock
+                        "duration_seconds": progress["duration_seconds"],
+                        "last_task_duration": progress["last_task_duration"],
                         "current_question": progress["current_question"],
                     }
                 )

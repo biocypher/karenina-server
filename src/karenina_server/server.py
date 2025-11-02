@@ -11,6 +11,11 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env from project root
+
 # FastAPI imports
 try:
     import uvicorn
@@ -104,12 +109,11 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         current_question: str
         processed_count: int
         total_count: int
-        estimated_time_remaining: float | None = None
+        duration_seconds: float | None = None
+        last_task_duration: float | None = None
         error: str | None = None
         result: dict[str, Any] | None = None
-        # WebSocket streaming fields
         in_progress_questions: list[str] = []
-        ema_seconds_per_item: float = 0.0
 
     # MCP Validation API Models
     class MCPTool(BaseModel):

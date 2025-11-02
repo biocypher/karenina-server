@@ -29,14 +29,12 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
             from karenina.schemas import ManualRubricTrait, MetricRubricTrait, Rubric, RubricTrait
             from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
-            from karenina.utils.async_utils import AsyncConfig
 
             # Parse request
             config_data = request.get("config", {})
             question_ids = request.get("question_ids")
             finished_templates_data = request.get("finished_templates", [])
             run_name = request.get("run_name")  # Optional user-defined run name
-            async_config_data = request.get("async_config")  # Optional async configuration
             storage_url = request.get("storage_url")  # Optional database URL for auto-save
             benchmark_name = request.get("benchmark_name")  # Optional benchmark name for auto-save
 
@@ -60,11 +58,6 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
             # Create config
             config = VerificationConfig(**config_data)
-
-            # Create async config if provided, otherwise use environment defaults
-            async_config = None
-            if async_config_data:
-                async_config = AsyncConfig(**async_config_data)
 
             # Create finished templates (needed for rubric validation)
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
@@ -124,7 +117,6 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 config=config,
                 question_ids=question_ids,
                 run_name=run_name,
-                async_config=async_config,
                 storage_url=storage_url,  # Pass storage URL for auto-save
                 benchmark_name=benchmark_name,  # Pass benchmark name for auto-save
             )
@@ -192,8 +184,9 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                         "processed": progress["processed_count"],
                         "total": progress["total_questions"],
                         "in_progress_questions": progress.get("in_progress_questions", []),
-                        "ema_seconds_per_item": progress.get("ema_seconds_per_item", 0),
-                        "estimated_time_remaining": progress.get("estimated_time_remaining"),
+                        "start_time": progress.get("start_time"),  # Unix timestamp for client-side live clock
+                        "duration_seconds": progress.get("duration_seconds"),
+                        "last_task_duration": progress.get("last_task_duration"),
                         "current_question": progress.get("current_question", ""),
                     }
                 )
