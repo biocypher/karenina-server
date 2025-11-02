@@ -117,7 +117,6 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 config=config,
                 question_ids=question_ids,
                 run_name=run_name,
-                async_config=None,  # Async control now via KARENINA_ASYNC_ENABLED env var
                 storage_url=storage_url,  # Pass storage URL for auto-save
                 benchmark_name=benchmark_name,  # Pass benchmark name for auto-save
             )
