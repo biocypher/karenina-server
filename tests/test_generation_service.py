@@ -1,14 +1,10 @@
-"""Tests for template generation service progress tracking and EMA calculation."""
+"""Tests for template generation service progress tracking."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from karenina_server.services.generation_service import (
-    PROGRESS_EMA_ALPHA,
-    GenerationService,
-    TemplateGenerationJob,
-)
+from karenina_server.services.generation_service import GenerationService, TemplateGenerationJob
 
 
 class TestTemplateGenerationJob:
@@ -27,7 +23,6 @@ class TestTemplateGenerationJob:
 
         assert "q1" in job.in_progress_questions
         assert len(job.in_progress_questions) == 1
-        assert job.last_update_ts is not None
 
     def test_task_started_prevents_duplicates(self):
         """Test that task_started doesn't add duplicates."""
@@ -53,7 +48,7 @@ class TestTemplateGenerationJob:
         )
 
         job.task_started("q1")
-        job.task_finished("q1", success=True, duration_seconds=2.5)
+        job.task_finished("q1", success=True)
 
         assert "q1" not in job.in_progress_questions
         assert job.processed_count == 1
@@ -69,15 +64,19 @@ class TestTemplateGenerationJob:
             total_questions=2,
         )
 
-        job.task_finished("q1", success=True, duration_seconds=1.0)
-        job.task_finished("q2", success=False, duration_seconds=0.5)
+        job.task_started("q1")
+        job.task_finished("q1", success=True)
+        job.task_started("q2")
+        job.task_finished("q2", success=False)
 
         assert job.processed_count == 2
         assert job.successful_count == 1
         assert job.failed_count == 1
 
-    def test_ema_initialization_with_first_task(self):
-        """Test that EMA is initialized with the first task duration."""
+    def test_last_task_duration_tracking(self):
+        """Test that last task duration is tracked correctly."""
+        import time
+
         job = TemplateGenerationJob(
             job_id="test-job",
             questions_data={"q1": {"question": "Test?", "raw_answer": "Answer"}},
@@ -85,50 +84,13 @@ class TestTemplateGenerationJob:
             total_questions=1,
         )
 
-        job.task_finished("q1", success=True, duration_seconds=5.0)
+        job.task_started("q1")
+        time.sleep(0.1)  # Sleep to make duration measurable
+        job.task_finished("q1", success=True)
 
-        assert job.ema_seconds_per_item == 5.0
-
-    def test_ema_calculation_with_multiple_tasks(self):
-        """Test that EMA is calculated correctly across multiple tasks."""
-        job = TemplateGenerationJob(
-            job_id="test-job",
-            questions_data={"q1": {}, "q2": {}, "q3": {}},
-            config={"model_name": "test"},
-            total_questions=3,
-        )
-
-        # First task: EMA = duration
-        job.task_finished("q1", success=True, duration_seconds=10.0)
-        assert job.ema_seconds_per_item == 10.0
-
-        # Second task: EMA = alpha * 5.0 + (1 - alpha) * 10.0
-        job.task_finished("q2", success=True, duration_seconds=5.0)
-        expected_ema_2 = PROGRESS_EMA_ALPHA * 5.0 + (1 - PROGRESS_EMA_ALPHA) * 10.0
-        assert abs(job.ema_seconds_per_item - expected_ema_2) < 0.001
-
-        # Third task: EMA = alpha * 8.0 + (1 - alpha) * previous_ema
-        job.task_finished("q3", success=True, duration_seconds=8.0)
-        expected_ema_3 = PROGRESS_EMA_ALPHA * 8.0 + (1 - PROGRESS_EMA_ALPHA) * expected_ema_2
-        assert abs(job.ema_seconds_per_item - expected_ema_3) < 0.001
-
-    def test_estimated_time_remaining_calculation(self):
-        """Test that estimated_time_remaining is calculated from EMA."""
-        job = TemplateGenerationJob(
-            job_id="test-job",
-            questions_data={"q1": {}, "q2": {}, "q3": {}, "q4": {}, "q5": {}},
-            config={"model_name": "test"},
-            total_questions=5,
-        )
-
-        # Process 2 out of 5 tasks
-        job.task_finished("q1", success=True, duration_seconds=3.0)
-        job.task_finished("q2", success=True, duration_seconds=3.0)
-
-        # EMA should be 3.0, remaining = 3 tasks
-        # estimated_time_remaining = 3.0 * 3 = 9.0
-        assert job.processed_count == 2
-        assert abs(job.estimated_time_remaining - 9.0) < 0.1
+        # Duration should be at least 0.1 seconds
+        assert job.last_task_duration is not None
+        assert job.last_task_duration >= 0.1
 
     def test_percentage_calculation(self):
         """Test that percentage is calculated correctly."""
@@ -139,16 +101,20 @@ class TestTemplateGenerationJob:
             total_questions=4,
         )
 
-        job.task_finished("q1", success=True, duration_seconds=1.0)
+        job.task_started("q1")
+        job.task_finished("q1", success=True)
         assert job.percentage == 25.0
 
-        job.task_finished("q2", success=True, duration_seconds=1.0)
+        job.task_started("q2")
+        job.task_finished("q2", success=True)
         assert job.percentage == 50.0
 
-        job.task_finished("q3", success=True, duration_seconds=1.0)
+        job.task_started("q3")
+        job.task_finished("q3", success=True)
         assert job.percentage == 75.0
 
-        job.task_finished("q4", success=True, duration_seconds=1.0)
+        job.task_started("q4")
+        job.task_finished("q4", success=True)
         assert job.percentage == 100.0
 
     def test_concurrent_tasks_tracking(self):
@@ -171,12 +137,12 @@ class TestTemplateGenerationJob:
         assert "q3" in job.in_progress_questions
 
         # Finish one task
-        job.task_finished("q1", success=True, duration_seconds=1.0)
+        job.task_finished("q1", success=True)
         assert len(job.in_progress_questions) == 2
         assert "q1" not in job.in_progress_questions
 
-    def test_to_dict_includes_new_fields(self):
-        """Test that to_dict includes WebSocket streaming fields."""
+    def test_to_dict_includes_progress_fields(self):
+        """Test that to_dict includes progress tracking fields."""
         job = TemplateGenerationJob(
             job_id="test-job",
             questions_data={"q1": {}},
@@ -188,9 +154,10 @@ class TestTemplateGenerationJob:
         job_dict = job.to_dict()
 
         assert "in_progress_questions" in job_dict
-        assert "ema_seconds_per_item" in job_dict
+        assert "duration_seconds" in job_dict
+        assert "last_task_duration" in job_dict
         assert job_dict["in_progress_questions"] == ["q1"]
-        assert job_dict["ema_seconds_per_item"] == 0.0
+        assert job_dict["last_task_duration"] is None  # No task finished yet
 
 
 class TestProgressBroadcaster:
@@ -297,8 +264,8 @@ class TestProgressBroadcaster:
 class TestGenerationServiceIntegration:
     """Integration tests for GenerationService with progress tracking."""
 
-    def test_get_progress_includes_new_fields(self):
-        """Test that get_progress returns the new WebSocket fields."""
+    def test_get_progress_includes_progress_fields(self):
+        """Test that get_progress returns progress tracking fields."""
         service = GenerationService()
 
         # Create a job
@@ -312,6 +279,6 @@ class TestGenerationServiceIntegration:
 
         assert progress is not None
         assert "in_progress_questions" in progress
-        assert "ema_seconds_per_item" in progress
+        assert "duration_seconds" in progress
+        assert "last_task_duration" in progress
         assert isinstance(progress["in_progress_questions"], list)
-        assert isinstance(progress["ema_seconds_per_item"], float)

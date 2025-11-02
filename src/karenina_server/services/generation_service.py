@@ -19,9 +19,6 @@ if TYPE_CHECKING:
 
 ConfigType: TypeAlias = dict[str, Any]
 
-# EMA smoothing factor for time-per-item estimation
-PROGRESS_EMA_ALPHA = 0.3
-
 
 class TemplateGenerationJob:
     """Represents a template generation job."""
@@ -54,12 +51,13 @@ class TemplateGenerationJob:
         self.failed_count = 0
         self.percentage = 0.0
         self.current_question = ""
-        self.estimated_time_remaining: float | None = None
+        self.last_task_duration: float | None = None
 
         # WebSocket streaming progress fields
         self.in_progress_questions: list[str] = []
-        self.ema_seconds_per_item: float = 0.0
-        self.last_update_ts: float | None = None
+
+        # Task timing tracking (maps question_id to start time)
+        self.task_start_times: dict[str, float] = {}
 
         # Results
         self.results: dict[str, Any] = {}
@@ -68,42 +66,42 @@ class TemplateGenerationJob:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert job to dictionary for API response."""
+        # Calculate duration if job has started
+        duration = None
+        if self.start_time:
+            duration = self.end_time - self.start_time if self.end_time else time.time() - self.start_time
+
         return {
             "job_id": self.job_id,
             "status": self.status,
             "total_questions": self.total_questions,
             "completed_questions": self.processed_count,
             "current_question_id": self.current_question,
-            "estimated_remaining_time": self.estimated_time_remaining,
+            "duration_seconds": duration,
+            "last_task_duration": self.last_task_duration,
             "error_message": self.error_message,
             "start_time": self.start_time,
             "end_time": self.end_time,
-            # WebSocket streaming fields
             "in_progress_questions": self.in_progress_questions,
-            "ema_seconds_per_item": self.ema_seconds_per_item,
         }
 
-    def _estimate_remaining_time(self) -> int | None:
-        """Estimate remaining time based on current progress."""
-        if self.processed_count == 0:
-            return None
-
-        if self.start_time is None:
-            return None
-
-        elapsed = time.time() - self.start_time
-        avg_time_per_question = elapsed / self.processed_count
-        remaining_questions = self.total_questions - self.processed_count
-        return int(avg_time_per_question * remaining_questions)
-
     def task_started(self, question_id: str) -> None:
-        """Mark a task as started and add to in-progress list."""
+        """Mark a task as started and record start time."""
         if question_id not in self.in_progress_questions:
             self.in_progress_questions.append(question_id)
-        self.last_update_ts = time.time()
 
-    def task_finished(self, question_id: str, success: bool, duration_seconds: float) -> None:
-        """Mark a task as finished, update counts and EMA."""
+        # Record task start time
+        self.task_start_times[question_id] = time.time()
+
+    def task_finished(self, question_id: str, success: bool) -> None:
+        """Mark a task as finished, calculate duration, and update counts."""
+        # Calculate task duration from recorded start time
+        task_duration = 0.0
+        if question_id in self.task_start_times:
+            task_duration = time.time() - self.task_start_times[question_id]
+            # Clean up start time
+            del self.task_start_times[question_id]
+
         # Remove from in-progress list
         if question_id in self.in_progress_questions:
             self.in_progress_questions.remove(question_id)
@@ -115,25 +113,11 @@ class TemplateGenerationJob:
         else:
             self.failed_count += 1
 
-        # Update EMA for time estimation
-        if self.ema_seconds_per_item == 0.0:
-            # First item: initialize EMA with actual duration
-            self.ema_seconds_per_item = duration_seconds
-        else:
-            # Update EMA: new_ema = alpha * current + (1 - alpha) * previous
-            self.ema_seconds_per_item = (
-                PROGRESS_EMA_ALPHA * duration_seconds + (1 - PROGRESS_EMA_ALPHA) * self.ema_seconds_per_item
-            )
-
-        # Calculate estimated remaining time using EMA
-        remaining_questions = self.total_questions - self.processed_count
-        self.estimated_time_remaining = self.ema_seconds_per_item * remaining_questions
-
         # Update percentage
         self.percentage = (self.processed_count / self.total_questions) * 100 if self.total_questions > 0 else 0.0
 
-        # Update timestamp
-        self.last_update_ts = time.time()
+        # Track last task duration
+        self.last_task_duration = task_duration
 
 
 class GenerationService:
@@ -200,6 +184,11 @@ class GenerationService:
         if not job:
             return
 
+        # Calculate current duration
+        duration = None
+        if job.start_time:
+            duration = job.end_time - job.start_time if job.end_time else time.time() - job.start_time
+
         event_data = {
             "type": event_type,
             "job_id": job_id,
@@ -208,8 +197,9 @@ class GenerationService:
             "processed": job.processed_count,
             "total": job.total_questions,
             "in_progress_questions": job.in_progress_questions,
-            "ema_seconds_per_item": job.ema_seconds_per_item,
-            "estimated_time_remaining": job.estimated_time_remaining,
+            "start_time": job.start_time,  # Send start_time for client-side elapsed time calculation
+            "duration_seconds": duration,
+            "last_task_duration": job.last_task_duration,
             "current_question": job.current_question,
         }
 
@@ -309,14 +299,6 @@ class GenerationService:
 
             job.percentage = percentage
 
-            # Calculate time estimates
-            if job.start_time is not None:
-                elapsed_time = time.time() - job.start_time
-                if job.processed_count > 0:
-                    avg_time_per_question = elapsed_time / job.processed_count
-                    remaining_questions = job.total_questions - job.processed_count
-                    job.estimated_time_remaining = avg_time_per_question * remaining_questions
-
     def _generate_templates(self, job: TemplateGenerationJob) -> None:
         """Generate templates for all questions in the job."""
         try:
@@ -365,20 +347,16 @@ class GenerationService:
                 def progress_callback(percentage: float, message: str) -> None:
                     self._update_job_progress(percentage, message)
 
-                # Track when tasks start and complete
-                task_start_times: dict[str, float] = {}
-
+                # Task timing is now tracked in job.task_start_times
                 def on_task_start(task: dict[str, Any]) -> None:
                     question_id = task["question_id"]
-                    job.task_started(question_id)
-                    task_start_times[question_id] = time.time()
+                    job.task_started(question_id)  # Records start time internally
                     self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
 
                 def on_task_done(task: dict[str, Any], result: dict[str, Any] | Exception) -> None:
                     question_id = task["question_id"]
-                    task_duration = time.time() - task_start_times.get(question_id, time.time())
                     success = not isinstance(result, Exception) and result.get("success", False)
-                    job.task_finished(question_id, success, task_duration)
+                    job.task_finished(question_id, success)  # Calculates duration internally
                     self._emit_progress_event(
                         job.job_id, "task_completed", {"question_id": question_id, "success": success}
                     )
@@ -414,17 +392,15 @@ class GenerationService:
                     job.current_question = question_data.get("question", "Unknown question")[:50] + "..."
 
                     # Track task start
-                    job.task_started(question_id)
+                    job.task_started(question_id)  # Records start time internally
                     self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
-                    task_start_time = time.time()
 
                     # Generate template
                     result = self._generate_single_template(task)
                     results.append(result)
 
                     # Track task completion
-                    task_duration = time.time() - task_start_time
-                    job.task_finished(question_id, result.get("success", False), task_duration)
+                    job.task_finished(question_id, result.get("success", False))  # Calculates duration internally
                     self._emit_progress_event(
                         job.job_id,
                         "task_completed",
@@ -459,13 +435,9 @@ class GenerationService:
             job.percentage = 100.0
 
             # Create final result
-            # Use EMA for average time (represents per-item average)
-            # Fall back to wall-clock time / questions for sync mode or if EMA not available
-            if job.ema_seconds_per_item > 0:
-                average_time = job.ema_seconds_per_item
-            else:
-                total_time = (job.end_time or 0) - (job.start_time or 0)
-                average_time = total_time / job.total_questions if job.total_questions > 0 else 0
+            # Calculate average generation time from total duration
+            total_time = (job.end_time or 0) - (job.start_time or 0)
+            average_time = total_time / job.total_questions if job.total_questions > 0 else 0
 
             job.result = {
                 "templates": job.results,
@@ -496,6 +468,11 @@ class GenerationService:
         if not job:
             return None
 
+        # Calculate duration
+        duration = None
+        if job.start_time:
+            duration = job.end_time - job.start_time if job.end_time else time.time() - job.start_time
+
         return {
             "job_id": job.job_id,
             "status": job.status,
@@ -505,13 +482,12 @@ class GenerationService:
             "failed_count": job.failed_count,
             "percentage": job.percentage,
             "current_question": job.current_question,
-            "estimated_time_remaining": job.estimated_time_remaining,
+            "duration_seconds": duration,
+            "last_task_duration": job.last_task_duration,
             "error_message": job.error_message,
             "start_time": job.start_time,
             "end_time": job.end_time,
-            # WebSocket streaming fields
             "in_progress_questions": job.in_progress_questions,
-            "ema_seconds_per_item": job.ema_seconds_per_item,
         }
 
     def generate_rubric_traits(

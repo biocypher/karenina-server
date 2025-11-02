@@ -185,8 +185,9 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                         "processed": progress["processed_count"],
                         "total": progress["total_questions"],
                         "in_progress_questions": progress.get("in_progress_questions", []),
-                        "ema_seconds_per_item": progress.get("ema_seconds_per_item", 0),
-                        "estimated_time_remaining": progress.get("estimated_time_remaining"),
+                        "start_time": progress.get("start_time"),  # Unix timestamp for client-side live clock
+                        "duration_seconds": progress.get("duration_seconds"),
+                        "last_task_duration": progress.get("last_task_duration"),
                         "current_question": progress.get("current_question", ""),
                     }
                 )

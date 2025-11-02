@@ -200,11 +200,10 @@ class VerificationService:
                         )
                     else:
                         # Task is finished
-                        # Calculate duration (we don't have start time, so use execution_time from result)
-                        duration_seconds = result.execution_time
                         success = result.completed_without_errors
 
-                        job.task_finished(result.question_id, success, duration_seconds)
+                        # task_finished now calculates duration internally from task_start_times
+                        job.task_finished(result.question_id, success)
                         job.percentage = (current / total) * 100 if total > 0 else 0
 
                         # Broadcast task completed event
@@ -244,7 +243,7 @@ class VerificationService:
             job.status = "completed"
             job.end_time = time.time()
             job.percentage = 100.0
-            job.estimated_time_remaining = 0.0
+            job.last_task_duration = None  # Clear last task duration on completion
             job.in_progress_questions = []
             self.historical_results[job.job_id] = job.results.copy()
 
@@ -323,6 +322,11 @@ class VerificationService:
         if not job:
             return None
 
+        # Calculate duration
+        duration = None
+        if job.start_time:
+            duration = job.end_time - job.start_time if job.end_time else time.time() - job.start_time
+
         progress_data = {
             "job_id": job.job_id,
             "run_name": job.run_name,
@@ -333,11 +337,11 @@ class VerificationService:
             "failed_count": job.failed_count,
             "percentage": job.percentage,
             "current_question": job.current_question,
-            "estimated_time_remaining": job.estimated_time_remaining,
+            "start_time": job.start_time,  # Unix timestamp for client-side live clock
+            "duration_seconds": duration,
+            "last_task_duration": job.last_task_duration,
             "error": job.error_message,
-            # WebSocket streaming fields
             "in_progress_questions": job.in_progress_questions,
-            "ema_seconds_per_item": job.ema_seconds_per_item,
         }
 
         # Include results if completed
@@ -352,6 +356,11 @@ class VerificationService:
         if not job:
             return
 
+        # Calculate current duration
+        duration = None
+        if job.start_time:
+            duration = job.end_time - job.start_time if job.end_time else time.time() - job.start_time
+
         event_data = {
             "type": event_type,
             "job_id": job_id,
@@ -360,8 +369,9 @@ class VerificationService:
             "processed": job.processed_count,
             "total": job.total_questions,
             "in_progress_questions": job.in_progress_questions,
-            "ema_seconds_per_item": job.ema_seconds_per_item,
-            "estimated_time_remaining": job.estimated_time_remaining,
+            "start_time": job.start_time,  # Send start_time for client-side elapsed time calculation
+            "duration_seconds": duration,
+            "last_task_duration": job.last_task_duration,
             "current_question": job.current_question,
         }
 

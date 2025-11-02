@@ -418,18 +418,21 @@ class TestProgressCallbacksInParallelMode:
             # Each task should trigger 2 callbacks (start + finish) = 12 total
             job = service.jobs[job_id]
 
-            # Check that EMA was updated (proves callbacks were called)
-            assert job.ema_seconds_per_item > 0, "EMA should be updated after tasks complete"
+            # Check that last task duration was tracked (proves callbacks were called)
+            assert job.last_task_duration is None, "Last task duration should be cleared on completion"
 
             # Check that task counts were updated correctly
             assert job.processed_count == 6, "All 6 tasks should be processed"
             assert job.successful_count == 6, "All 6 tasks should succeed"
 
-            # ETA should be 0 when complete
-            assert job.estimated_time_remaining == 0.0, "ETA should be 0 when complete"
+            # Duration should be calculated when job is complete
+            assert job.start_time is not None, "Start time should be set"
+            assert job.end_time is not None, "End time should be set"
+            duration = job.end_time - job.start_time
+            assert duration > 0, "Total duration should be positive"
 
-    def test_parallel_mode_eta_estimation_accuracy(self, sample_template, monkeypatch):
-        """Test that ETA estimation works correctly in parallel mode."""
+    def test_parallel_mode_duration_tracking(self, sample_template, monkeypatch):
+        """Test that duration tracking works correctly in parallel mode."""
         monkeypatch.setenv("KARENINA_ASYNC_ENABLED", "true")
         monkeypatch.setenv("KARENINA_ASYNC_MAX_WORKERS", "3")
 
@@ -504,10 +507,17 @@ class TestProgressCallbacksInParallelMode:
             # Verify all tasks executed
             assert execution_count[0] == 5, "All 5 replicate tasks should execute"
 
-            # Verify EMA was calculated
-            assert job.ema_seconds_per_item > 0, "EMA should be calculated from task execution times"
+            # Verify last task duration was cleared on completion
+            assert job.last_task_duration is None, "Last task duration should be cleared when job completes"
 
             # Verify final state
             assert job.processed_count == 5
             assert job.successful_count == 5
-            assert job.estimated_time_remaining == 0.0
+
+            # Verify duration tracking
+            assert job.start_time is not None, "Start time should be recorded"
+            assert job.end_time is not None, "End time should be recorded"
+            total_duration = job.end_time - job.start_time
+            assert total_duration > 0, "Total duration should be positive"
+            # Duration should be roughly 5 tasks × 0.02s ÷ 3 workers ≈ 0.03-0.05s (with overhead)
+            assert total_duration < 1.0, "Parallel execution should be faster than sequential"
