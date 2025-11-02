@@ -1,15 +1,14 @@
 """Service for managing answer template generation with progress tracking."""
 
-import asyncio
+import os
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Type alias for config - using TYPE_CHECKING to avoid circular imports
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from karenina.domain.answers.generator import generate_answer_template
-from karenina.utils.async_utils import AsyncConfig, execute_with_config
 from karenina.utils.code import extract_and_combine_codeblocks
 
 from .progress_broadcaster import ProgressBroadcaster
@@ -30,14 +29,26 @@ class TemplateGenerationJob:
         config: ConfigType,
         total_questions: int,
         force_regenerate: bool = False,
-        async_config: AsyncConfig | None = None,
+        async_enabled: bool | None = None,
+        max_workers: int | None = None,
     ):
         self.job_id = job_id
         self.questions_data = questions_data
         self.config = config
         self.total_questions = total_questions
         self.force_regenerate = force_regenerate
-        self.async_config = async_config or AsyncConfig.from_env()
+
+        # Read async settings from parameters or environment
+        if async_enabled is None:
+            self.async_enabled = os.getenv("KARENINA_ASYNC_ENABLED", "true").lower() == "true"
+        else:
+            self.async_enabled = async_enabled
+
+        if max_workers is None:
+            max_workers_env = os.getenv("KARENINA_ASYNC_MAX_WORKERS")
+            self.max_workers = int(max_workers_env) if max_workers_env else 2
+        else:
+            self.max_workers = max_workers
 
         # Status tracking
         self.status = "pending"  # pending, running, completed, failed, cancelled
@@ -134,7 +145,8 @@ class GenerationService:
         questions_data: dict[str, Any],
         config: dict[str, Any],
         force_regenerate: bool = False,
-        async_config: AsyncConfig | None = None,
+        async_enabled: bool | None = None,
+        max_workers: int | None = None,
     ) -> str:
         """Start a new template generation job."""
         job_id = str(uuid.uuid4())
@@ -146,7 +158,8 @@ class GenerationService:
             config=config,
             total_questions=len(questions_data),
             force_regenerate=force_regenerate,
-            async_config=async_config,
+            async_enabled=async_enabled,
+            max_workers=max_workers,
         )
 
         self.jobs[job_id] = job
@@ -286,18 +299,117 @@ class GenerationService:
                 "raw_response": "",
             }
 
-    def _update_job_progress(self, percentage: float, message: str) -> None:
-        """Update job progress from async callback."""
-        # This will be used by the async wrapper to update progress
-        # The job object will be set before calling async execution
-        if hasattr(self, "_current_job") and self._current_job:
-            job = self._current_job
-            # Extract question info from message if available
-            if ":" in message:
-                _, question_info = message.split(":", 1)
-                job.current_question = question_info.strip()[:50] + "..."
+    def _execute_sequential(self, tasks: list[dict[str, Any]], job: TemplateGenerationJob) -> list[dict[str, Any]]:
+        """Execute tasks sequentially with progress tracking.
 
-            job.percentage = percentage
+        Args:
+            tasks: List of task dictionaries to process
+            job: The job object for tracking progress
+
+        Returns:
+            List of results in the same order as input tasks
+        """
+        results = []
+        for task in tasks:
+            if job.cancelled:
+                job.status = "cancelled"
+                self._emit_progress_event(job.job_id, "job_cancelled")
+                break
+
+            question_id = task["question_id"]
+            question_data = task["question_data"]
+            job.current_question = question_data.get("question", "Unknown question")[:50] + "..."
+
+            # Track task start
+            job.task_started(question_id)
+            self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
+
+            # Generate template
+            result = self._generate_single_template(task)
+            results.append(result)
+
+            # Track task completion
+            success = result.get("success", False)
+            job.task_finished(question_id, success)
+            self._emit_progress_event(
+                job.job_id,
+                "task_completed",
+                {"question_id": question_id, "success": success},
+            )
+
+        return results
+
+    def _execute_parallel(self, tasks: list[dict[str, Any]], job: TemplateGenerationJob) -> list[dict[str, Any]]:
+        """Execute tasks in parallel using ThreadPoolExecutor.
+
+        Args:
+            tasks: List of task dictionaries to process
+            job: The job object for tracking progress
+
+        Returns:
+            List of results in the same order as input tasks
+        """
+        # Initialize results list to maintain order
+        results: list[dict[str, Any] | None] = [None] * len(tasks)
+
+        with ThreadPoolExecutor(max_workers=job.max_workers) as executor:
+            # Submit all tasks and track with original index
+            future_to_index = {}
+            for idx, task in enumerate(tasks):
+                question_id = task["question_id"]
+
+                # Track task start
+                job.task_started(question_id)
+                self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
+
+                # Submit task
+                future = executor.submit(self._generate_single_template, task)
+                future_to_index[future] = idx
+
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                if job.cancelled:
+                    job.status = "cancelled"
+                    self._emit_progress_event(job.job_id, "job_cancelled")
+                    # Cancel remaining futures
+                    for f in future_to_index:
+                        f.cancel()
+                    break
+
+                idx = future_to_index[future]
+                task = tasks[idx]
+                question_id = task["question_id"]
+
+                try:
+                    result = future.result()
+                    results[idx] = result
+                    success = result.get("success", False)
+
+                    # Track task completion
+                    job.task_finished(question_id, success)
+                    self._emit_progress_event(
+                        job.job_id,
+                        "task_completed",
+                        {"question_id": question_id, "success": success},
+                    )
+
+                except Exception as e:
+                    # Store exception as result
+                    results[idx] = {
+                        "success": False,
+                        "error": str(e),
+                        "template_code": "",
+                        "question_id": question_id,
+                        "raw_response": "",
+                    }
+                    job.task_finished(question_id, False)
+                    self._emit_progress_event(
+                        job.job_id,
+                        "task_completed",
+                        {"question_id": question_id, "success": False},
+                    )
+
+        return [r for r in results if r is not None]
 
     def _generate_templates(self, job: TemplateGenerationJob) -> None:
         """Generate templates for all questions in the job."""
@@ -339,95 +451,23 @@ class GenerationService:
                 }
                 generation_tasks.append(task)
 
-            # Set current job for progress callbacks
-            self._current_job = job
-
-            if job.async_config.enabled:
-                # Async execution: chunk and parallelize
-                def progress_callback(percentage: float, message: str) -> None:
-                    self._update_job_progress(percentage, message)
-
-                # Task timing is now tracked in job.task_start_times
-                def on_task_start(task: dict[str, Any]) -> None:
-                    question_id = task["question_id"]
-                    job.task_started(question_id)  # Records start time internally
-                    self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
-
-                def on_task_done(task: dict[str, Any], result: dict[str, Any] | Exception) -> None:
-                    question_id = task["question_id"]
-                    success = not isinstance(result, Exception) and result.get("success", False)
-                    job.task_finished(question_id, success)  # Calculates duration internally
-                    self._emit_progress_event(
-                        job.job_id, "task_completed", {"question_id": question_id, "success": success}
-                    )
-
-                try:
-                    results = asyncio.run(
-                        execute_with_config(
-                            items=generation_tasks,
-                            sync_function=self._generate_single_template,
-                            config=job.async_config,
-                            progress_callback=progress_callback,
-                            on_task_start=on_task_start,
-                            on_task_done=on_task_done,
-                        )
-                    )
-                except Exception as e:
-                    job.status = "failed"
-                    job.error_message = f"Async execution failed: {str(e)}"
-                    job.end_time = time.time()
-                    self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
-                    return
+            # Execute tasks based on async setting
+            if job.async_enabled:
+                # Parallel execution using ThreadPoolExecutor
+                results = self._execute_parallel(generation_tasks, job)
             else:
-                # Sync execution: simple loop (original behavior)
-                results = []
-                for _i, task in enumerate(generation_tasks):
-                    if job.cancelled:
-                        job.status = "cancelled"
-                        self._emit_progress_event(job.job_id, "job_cancelled")
-                        return
+                # Sequential execution (original behavior)
+                results = self._execute_sequential(generation_tasks, job)
 
-                    question_id = task["question_id"]
-                    question_data = task["question_data"]
-                    job.current_question = question_data.get("question", "Unknown question")[:50] + "..."
-
-                    # Track task start
-                    job.task_started(question_id)  # Records start time internally
-                    self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
-
-                    # Generate template
-                    result = self._generate_single_template(task)
-                    results.append(result)
-
-                    # Track task completion
-                    job.task_finished(question_id, result.get("success", False))  # Calculates duration internally
-                    self._emit_progress_event(
-                        job.job_id,
-                        "task_completed",
-                        {"question_id": question_id, "success": result.get("success", False)},
-                    )
-
-            # Process results and update job
+            # Store results
             for result in results:
                 if isinstance(result, Exception):
-                    # Handle exceptions from async execution
+                    # Handle exceptions
                     question_id = "unknown"
                     job.results[question_id] = {"success": False, "error": str(result), "template_code": ""}
-                    # Only increment if not already counted by task_finished()
-                    if not job.async_config.enabled:
-                        job.failed_count += 1
                 else:
                     question_id = result["question_id"]
                     job.results[question_id] = result
-
-                    # Only update counts if async is disabled
-                    # In async mode, counts are already updated by task_finished() callbacks
-                    if not job.async_config.enabled:
-                        job.processed_count += 1
-                        if result.get("success", False):
-                            job.successful_count += 1
-                        else:
-                            job.failed_count += 1
 
             # Job completed successfully
             job.status = "completed"
@@ -457,10 +497,6 @@ class GenerationService:
             job.end_time = time.time()
             # Emit failure event
             self._emit_progress_event(job.job_id, "job_failed", {"error": str(e)})
-        finally:
-            # Clean up reference to current job
-            if hasattr(self, "_current_job"):
-                delattr(self, "_current_job")
 
     def get_progress(self, job_id: str) -> dict[str, Any] | None:
         """Get progress information for a job."""
