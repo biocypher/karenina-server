@@ -253,6 +253,8 @@ class GenerationService:
         model_provider = task["model_provider"]
         temperature = task["temperature"]
         interface = task["interface"]
+        endpoint_base_url = task.get("endpoint_base_url")
+        endpoint_api_key = task.get("endpoint_api_key")
 
         try:
             # Generate template using the structured generator
@@ -263,6 +265,8 @@ class GenerationService:
                 model_provider=model_provider,
                 temperature=temperature,
                 interface=interface,
+                endpoint_base_url=endpoint_base_url,
+                endpoint_api_key=endpoint_api_key,
             )
 
             # Extract only the Python code blocks from the LLM response
@@ -426,6 +430,11 @@ class GenerationService:
                 model_provider = config.model_provider  # type: ignore[attr-defined]
                 temperature = config.temperature  # type: ignore[attr-defined]
                 interface = getattr(config, "interface", "langchain")
+                endpoint_base_url = getattr(config, "endpoint_base_url", None)
+                endpoint_api_key = getattr(config, "endpoint_api_key", None)
+                # Extract secret value if it's a SecretStr
+                if endpoint_api_key is not None and hasattr(endpoint_api_key, "get_secret_value"):
+                    endpoint_api_key = endpoint_api_key.get_secret_value()
             else:
                 # Old config format (dict)
                 config_dict = config
@@ -437,6 +446,8 @@ class GenerationService:
                 else:
                     model_provider = config_dict.get("model_provider", "")
                 temperature = config_dict.get("temperature", 0.1)
+                endpoint_base_url = config_dict.get("endpoint_base_url", None)
+                endpoint_api_key = config_dict.get("endpoint_api_key", None)
 
             # Build list of all generation tasks
             generation_tasks = []
@@ -448,6 +459,8 @@ class GenerationService:
                     "model_provider": model_provider,
                     "temperature": temperature,
                     "interface": interface,
+                    "endpoint_base_url": endpoint_base_url,
+                    "endpoint_api_key": endpoint_api_key,
                 }
                 generation_tasks.append(task)
 

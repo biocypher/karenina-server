@@ -22,7 +22,7 @@ try:
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel
+    from pydantic import BaseModel, SecretStr
 
     FASTAPI_AVAILABLE = True
 except ImportError:
@@ -91,6 +91,8 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         model_name: str
         temperature: float = 0.1
         interface: str = "langchain"
+        endpoint_base_url: str | None = None
+        endpoint_api_key: SecretStr | None = None
 
     class TemplateGenerationRequest(BaseModel):
         questions: dict[str, Any]
