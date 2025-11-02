@@ -9,7 +9,6 @@ from typing import Any
 
 from karenina.schemas.domain import Rubric
 from karenina.schemas.workflow import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
-from karenina.utils.async_utils import AsyncConfig
 
 from .progress_broadcaster import ProgressBroadcaster
 
@@ -44,7 +43,6 @@ class VerificationService:
         config: VerificationConfig,
         question_ids: list[str] | None = None,
         run_name: str | None = None,
-        async_config: AsyncConfig | None = None,
         storage_url: str | None = None,
         benchmark_name: str | None = None,
     ) -> str:
@@ -90,7 +88,6 @@ class VerificationService:
             status="pending",
             config=config,
             total_questions=total_combinations,
-            async_config=async_config,
             storage_url=storage_url,  # Store for auto-save
             benchmark_name=benchmark_name,  # Store benchmark name for auto-save
         )
