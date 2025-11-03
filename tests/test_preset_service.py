@@ -46,36 +46,24 @@ def sample_verification_config():
 
 
 @pytest.fixture
-def temp_presets_file():
-    """Create a temporary benchmark_presets.json file for testing."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        initial_presets = {"presets": {}}
-        json.dump(initial_presets, f)
-        temp_path = Path(f.name)
-
-    yield temp_path
-
-    # Cleanup
-    if temp_path.exists():
-        temp_path.unlink()
-    # Also cleanup backup if it exists
-    backup_path = temp_path.with_suffix(".json.backup")
-    if backup_path.exists():
-        backup_path.unlink()
+def temp_presets_dir():
+    """Create a temporary presets directory for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        yield temp_path
 
 
 @pytest.fixture
-def preset_service(temp_presets_file):
-    """Create a preset service with temporary presets file."""
-    return BenchmarkPresetService(presets_file_path=temp_presets_file)
+def preset_service(temp_presets_dir):
+    """Create a preset service with temporary presets directory."""
+    return BenchmarkPresetService(presets_dir_path=temp_presets_dir)
 
 
 @pytest.fixture
 def empty_preset_service():
-    """Create a preset service with non-existent file."""
+    """Create a preset service with empty directory."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        non_existent_file = Path(temp_dir) / "nonexistent.json"
-        yield BenchmarkPresetService(presets_file_path=non_existent_file)
+        yield BenchmarkPresetService(presets_dir_path=Path(temp_dir))
 
 
 class TestBenchmarkPresetService:
@@ -405,82 +393,97 @@ class TestBenchmarkPresetService:
         assert len(remaining) == 1
         assert preset2["id"] in remaining
 
-    # ===== FILE OPERATIONS TESTS =====
+    # ===== DIRECTORY OPERATIONS TESTS =====
 
-    def test_file_creation(self, empty_preset_service, sample_verification_config):
-        """Test that preset file is created automatically on init."""
-        # File is created automatically by _ensure_file_exists() in __init__
-        assert empty_preset_service.presets_file_path.exists()
+    def test_directory_creation(self, empty_preset_service):
+        """Test that preset directory is created automatically on init."""
+        # Directory is created automatically by _ensure_dir_exists() in __init__
+        assert empty_preset_service.presets_dir_path.exists()
+        assert empty_preset_service.presets_dir_path.is_dir()
 
-        # Verify it has correct structure
-        with open(empty_preset_service.presets_file_path) as f:
-            data = json.load(f)
-        assert "presets" in data
-        assert data["presets"] == {}
+        # Verify it starts empty
+        presets = empty_preset_service.list_presets()
+        assert presets == {}
 
-        # Create a preset and verify it's saved
-        empty_preset_service.create_preset("First Preset", sample_verification_config)
-
-        with open(empty_preset_service.presets_file_path) as f:
-            data = json.load(f)
-        assert len(data["presets"]) == 1
-
-    def test_file_persistence(self, temp_presets_file, sample_verification_config):
-        """Test that presets persist across service instances."""
+    def test_preset_file_persistence(self, temp_presets_dir, sample_verification_config):
+        """Test that presets persist as individual files across service instances."""
         # Create preset with first service instance
-        service1 = BenchmarkPresetService(presets_file_path=temp_presets_file)
+        service1 = BenchmarkPresetService(presets_dir_path=temp_presets_dir)
         preset = service1.create_preset("Persistent", sample_verification_config)
         preset_id = preset["id"]
 
+        # Verify individual JSON file was created
+        json_files = list(temp_presets_dir.glob("*.json"))
+        assert len(json_files) == 1
+        assert json_files[0].name == "persistent.json"
+
         # Read with new service instance
-        service2 = BenchmarkPresetService(presets_file_path=temp_presets_file)
+        service2 = BenchmarkPresetService(presets_dir_path=temp_presets_dir)
         retrieved = service2.get_preset(preset_id)
 
         assert retrieved["name"] == "Persistent"
 
-    def test_backup_creation(self, preset_service, sample_verification_config):
-        """Test that backup is created during updates."""
-        preset_service.create_preset("Test", sample_verification_config)
+    def test_individual_preset_files(self, preset_service, sample_verification_config, temp_presets_dir):
+        """Test that each preset creates its own JSON file."""
+        # Create multiple presets
+        preset_service.create_preset("Quick Test", sample_verification_config)
+        preset_service.create_preset("Full Benchmark", sample_verification_config)
+        preset_service.create_preset("Custom Config", sample_verification_config)
 
-        backup_path = preset_service.presets_file_path.with_suffix(".json.backup")
-        assert backup_path.exists()
+        # Verify individual files exist
+        json_files = sorted(temp_presets_dir.glob("*.json"))
+        assert len(json_files) == 3
 
-    def test_backup_restore(self, preset_service, sample_verification_config):
-        """Test backup restoration after failed operation."""
-        # Create first preset - backup will be empty, file will have preset1
-        preset1 = preset_service.create_preset("Test1", sample_verification_config)
-        preset1_id = preset1["id"]
+        # Verify filenames are sanitized
+        filenames = [f.name for f in json_files]
+        assert "quick-test.json" in filenames
+        assert "full-benchmark.json" in filenames
+        assert "custom-config.json" in filenames
 
-        # Create second preset - backup will have preset1, file will have preset1+preset2
-        preset2 = preset_service.create_preset("Test2", sample_verification_config)
-        preset2_id = preset2["id"]
+        # Verify each file contains correct structure
+        for filepath in json_files:
+            with open(filepath) as f:
+                preset_data = json.load(f)
+            assert "id" in preset_data
+            assert "name" in preset_data
+            assert "config" in preset_data
+            assert "created_at" in preset_data
+            assert "updated_at" in preset_data
 
-        # Verify backup was created and contains preset1 only (state before preset2 was added)
-        backup_path = preset_service.presets_file_path.with_suffix(".json.backup")
-        assert backup_path.exists()
+    def test_preset_file_deletion(self, preset_service, sample_verification_config, temp_presets_dir):
+        """Test that deleting a preset removes its file."""
+        preset = preset_service.create_preset("To Delete", sample_verification_config)
+        preset_id = preset["id"]
 
-        # Simulate corruption by manually editing file
-        with open(preset_service.presets_file_path, "w") as f:
-            f.write("invalid json{")
+        # Verify file exists
+        json_files = list(temp_presets_dir.glob("*.json"))
+        assert len(json_files) == 1
 
-        # Restore from backup
-        preset_service._restore_backup()
+        # Delete preset
+        preset_service.delete_preset(preset_id)
 
-        # Verify file is restored (should have preset1 but not preset2)
-        with open(preset_service.presets_file_path) as f:
-            data = json.load(f)
-        assert preset1_id in data["presets"]
-        assert data["presets"][preset1_id]["name"] == "Test1"
-        # preset2 should not be in backup since backup was created before preset2 was added
-        assert preset2_id not in data["presets"]
+        # Verify file is gone
+        json_files = list(temp_presets_dir.glob("*.json"))
+        assert len(json_files) == 0
 
-        # Verify service can read preset1
-        restored = preset_service.get_preset(preset1_id)
-        assert restored["name"] == "Test1"
+    def test_preset_file_rename_on_update(self, preset_service, sample_verification_config, temp_presets_dir):
+        """Test that renaming a preset renames its file."""
+        preset = preset_service.create_preset("Original Name", sample_verification_config)
+        preset_id = preset["id"]
 
-        # Verify preset2 is gone
-        with pytest.raises(ValueError, match="not found"):
-            preset_service.get_preset(preset2_id)
+        # Verify original file exists
+        assert (temp_presets_dir / "original-name.json").exists()
+
+        # Update name
+        preset_service.update_preset(preset_id, name="New Name")
+
+        # Verify old file is gone and new file exists
+        assert not (temp_presets_dir / "original-name.json").exists()
+        assert (temp_presets_dir / "new-name.json").exists()
+
+        # Verify preset can still be retrieved
+        retrieved = preset_service.get_preset(preset_id)
+        assert retrieved["name"] == "New Name"
 
     # ===== INTEGRATION TESTS =====
 

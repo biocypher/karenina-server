@@ -1,10 +1,9 @@
 """Service for managing benchmark configuration presets."""
-# ruff: noqa: B904  # Intentionally suppress exception chaining for security
 
 import json
 import logging
 import os
-import shutil
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,28 +17,33 @@ logger = logging.getLogger(__name__)
 class BenchmarkPresetService:
     """Service for managing benchmark configuration preset persistence."""
 
-    def __init__(self, presets_file_path: Path | None = None):
+    def __init__(self, presets_dir_path: Path | None = None):
         """Initialize preset service.
 
         Args:
-            presets_file_path: Path to benchmark_presets.json file. If None, uses default location.
+            presets_dir_path: Path to presets directory. If None, uses default location from env or project root.
         """
-        if presets_file_path is None:
-            # Default to benchmark_presets.json file in project root
-            project_root = Path(__file__).parent.parent.parent.parent.parent
-            presets_file_path = project_root / "benchmark_presets.json"
+        if presets_dir_path is None:
+            # Check environment variable first
+            env_presets_dir = os.getenv("KARENINA_PRESETS_DIR")
+            if env_presets_dir:
+                presets_dir_path = Path(env_presets_dir)
+            else:
+                # Default to benchmark_presets/ directory in project root
+                project_root = Path(__file__).parent.parent.parent.parent.parent
+                presets_dir_path = project_root / "benchmark_presets"
 
         # Validate and canonicalize path to prevent traversal attacks
-        self.presets_file_path = self._validate_file_path(presets_file_path)
+        self.presets_dir_path = self._validate_dir_path(presets_dir_path)
 
-        # Ensure file exists with empty presets structure
-        self._ensure_file_exists()
+        # Ensure directory exists
+        self._ensure_dir_exists()
 
-    def _validate_file_path(self, file_path: Path) -> Path:
-        """Validate file path to prevent directory traversal attacks.
+    def _validate_dir_path(self, dir_path: Path) -> Path:
+        """Validate directory path to prevent directory traversal attacks.
 
         Args:
-            file_path: Path to validate
+            dir_path: Path to validate
 
         Returns:
             Canonicalized safe path
@@ -49,7 +53,7 @@ class BenchmarkPresetService:
         """
         try:
             # Resolve to absolute path and normalize
-            resolved_path = file_path.resolve()
+            resolved_path = dir_path.resolve()
 
             # Get project root for comparison
             project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
@@ -88,86 +92,169 @@ class BenchmarkPresetService:
 
         except (OSError, ValueError) as e:
             if "Path outside allowed directories" in str(e):
-                raise e
-            raise ValueError(f"Invalid file path: {e}")
+                raise
+            raise ValueError(f"Invalid directory path: {e}") from e
 
-    def _ensure_file_exists(self) -> None:
-        """Ensure presets file exists with empty structure if not present."""
-        if not self.presets_file_path.exists():
+    def _ensure_dir_exists(self) -> None:
+        """Ensure presets directory exists."""
+        if not self.presets_dir_path.exists():
             try:
-                self.presets_file_path.parent.mkdir(parents=True, exist_ok=True)
-                initial_data: dict[str, dict[str, Any]] = {"presets": {}}
-                with open(self.presets_file_path, "w") as f:
-                    json.dump(initial_data, f, indent=2)
-                logger.info(f"Created initial presets file at {self.presets_file_path}")
+                self.presets_dir_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created presets directory at {self.presets_dir_path}")
             except Exception as e:
-                logger.error(f"Error creating presets file: {e}")
+                logger.error(f"Error creating presets directory: {e}")
                 raise
 
-    def _load_presets(self) -> dict[str, dict[str, Any]]:
-        """Load presets from file.
+    def _sanitize_filename(self, name: str) -> str:
+        """Sanitize preset name to create a safe filename.
+
+        Args:
+            name: Preset name
+
+        Returns:
+            Sanitized filename (e.g., "Quick Test" -> "quick-test.json")
+        """
+        # Convert to lowercase
+        sanitized = name.lower()
+
+        # Replace spaces with hyphens
+        sanitized = sanitized.replace(" ", "-")
+
+        # Keep only alphanumeric characters and hyphens
+        sanitized = re.sub(r"[^a-z0-9-]", "", sanitized)
+
+        # Remove consecutive hyphens
+        sanitized = re.sub(r"-+", "-", sanitized)
+
+        # Strip leading/trailing hyphens
+        sanitized = sanitized.strip("-")
+
+        # Ensure it's not empty
+        if not sanitized:
+            sanitized = "preset"
+
+        # Limit length (reserve space for .json extension)
+        if len(sanitized) > 96:
+            sanitized = sanitized[:96]
+
+        return f"{sanitized}.json"
+
+    def _load_preset_from_file(self, filepath: Path) -> dict[str, Any] | None:
+        """Load a single preset from a JSON file.
+
+        Args:
+            filepath: Path to preset JSON file
+
+        Returns:
+            Preset dictionary or None if load fails
+        """
+        try:
+            with open(filepath) as f:
+                preset: dict[str, Any] = json.load(f)
+                return preset
+        except Exception as e:
+            logger.error(f"Error loading preset from {filepath}: {e}")
+            return None
+
+    def _scan_presets(self) -> dict[str, dict[str, Any]]:
+        """Scan presets directory and load all preset files.
 
         Returns:
             Dictionary of presets keyed by preset ID
         """
-        try:
-            with open(self.presets_file_path) as f:
-                data: dict[str, Any] = json.load(f)
-                presets: dict[str, dict[str, Any]] = data.get("presets", {})
-                return presets
-        except Exception as e:
-            logger.error(f"Error loading presets: {e}")
-            return {}
+        presets: dict[str, dict[str, Any]] = {}
 
-    def _save_presets(self, presets: dict[str, dict[str, Any]]) -> None:
-        """Save presets to file with atomic write.
+        if not self.presets_dir_path.exists():
+            return presets
+
+        # Scan for .json files
+        for filepath in self.presets_dir_path.glob("*.json"):
+            preset = self._load_preset_from_file(filepath)
+            if preset and "id" in preset:
+                presets[preset["id"]] = preset
+
+        return presets
+
+    def _save_preset_to_file(self, preset: dict[str, Any], filename: str) -> None:
+        """Save a preset to a JSON file.
 
         Args:
-            presets: Dictionary of presets to save
+            preset: Preset dictionary
+            filename: Filename to save as
 
         Raises:
             IOError: If file operations fail
         """
-        # Create backup if file exists
-        self._create_backup()
+        filepath = self.presets_dir_path / filename
 
         try:
-            data_to_save = {"presets": presets}
-
             # Write to file with secure permissions
-            # Use temporary file and atomic move
-            temp_file = self.presets_file_path.with_suffix(".tmp")
-            fd = os.open(str(temp_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+            fd = os.open(str(filepath), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
             try:
                 with os.fdopen(fd, "w") as f:
-                    json.dump(data_to_save, f, indent=2)
+                    json.dump(preset, f, indent=2)
             except:
                 os.close(fd)
                 raise
 
-            # Atomic move to replace original file
-            temp_file.replace(self.presets_file_path)
-
-            logger.info(f"Saved presets to {self.presets_file_path}")
+            logger.info(f"Saved preset to {filepath}")
 
         except Exception as e:
-            logger.error(f"Error saving presets: {e}")
-            self._restore_backup()
+            logger.error(f"Error saving preset to {filepath}: {e}")
             raise
 
-    def _create_backup(self) -> None:
-        """Create a backup of the current presets file."""
-        if self.presets_file_path.exists():
-            backup_path = self.presets_file_path.with_suffix(".json.backup")
-            shutil.copy2(self.presets_file_path, backup_path)
-            logger.debug(f"Created backup at {backup_path}")
+    def _find_preset_file(self, preset_id: str) -> Path | None:
+        """Find the file path for a preset by its ID.
 
-    def _restore_backup(self) -> None:
-        """Restore presets file from backup."""
-        backup_path = self.presets_file_path.with_suffix(".json.backup")
-        if backup_path.exists():
-            shutil.copy2(backup_path, self.presets_file_path)
-            logger.info("Restored presets file from backup")
+        Args:
+            preset_id: Preset UUID
+
+        Returns:
+            Path to preset file or None if not found
+        """
+        # Scan all JSON files for matching ID
+        for filepath in self.presets_dir_path.glob("*.json"):
+            preset = self._load_preset_from_file(filepath)
+            if preset and preset.get("id") == preset_id:
+                return filepath
+        return None
+
+    def _sanitize_model_config(self, model: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize model configuration to remove interface-specific fields.
+
+        Args:
+            model: Model configuration dictionary
+
+        Returns:
+            Sanitized model configuration
+        """
+        sanitized: dict[str, Any] = {
+            "id": model["id"],
+            "model_provider": model["model_provider"],
+            "model_name": model["model_name"],
+            "temperature": model["temperature"],
+            "interface": model["interface"],
+            "system_prompt": model["system_prompt"],
+        }
+
+        # Include max_retries if present
+        if "max_retries" in model:
+            sanitized["max_retries"] = model["max_retries"]
+
+        # Only include endpoint fields for openai_endpoint interface
+        if model["interface"] == "openai_endpoint":
+            if model.get("endpoint_base_url"):
+                sanitized["endpoint_base_url"] = model["endpoint_base_url"]
+            if model.get("endpoint_api_key"):
+                sanitized["endpoint_api_key"] = model["endpoint_api_key"]
+
+        # Only include MCP fields if they have values
+        if model.get("mcp_urls_dict"):
+            sanitized["mcp_urls_dict"] = model["mcp_urls_dict"]
+        if model.get("mcp_tool_filter"):
+            sanitized["mcp_tool_filter"] = model["mcp_tool_filter"]
+
+        return sanitized
 
     def _validate_preset_data(self, name: str, description: str | None, preset_id: str | None = None) -> None:
         """Validate preset metadata.
@@ -195,7 +282,7 @@ class BenchmarkPresetService:
                 raise ValueError("Description cannot exceed 500 characters")
 
         # Check name uniqueness
-        presets = self._load_presets()
+        presets = self._scan_presets()
         for pid, preset in presets.items():
             # Skip the preset being updated
             if preset_id and pid == preset_id:
@@ -204,12 +291,12 @@ class BenchmarkPresetService:
                 raise ValueError(f"A preset with name '{name}' already exists")
 
     def list_presets(self) -> dict[str, dict[str, Any]]:
-        """Get all presets.
+        """Get all presets by scanning the presets directory.
 
         Returns:
             Dictionary of presets keyed by preset ID
         """
-        return self._load_presets()
+        return self._scan_presets()
 
     def get_preset(self, preset_id: str) -> dict[str, Any]:
         """Get a specific preset by ID.
@@ -223,10 +310,15 @@ class BenchmarkPresetService:
         Raises:
             ValueError: If preset not found
         """
-        presets = self._load_presets()
-        if preset_id not in presets:
+        filepath = self._find_preset_file(preset_id)
+        if not filepath:
             raise ValueError(f"Preset with ID '{preset_id}' not found")
-        return presets[preset_id]
+
+        preset = self._load_preset_from_file(filepath)
+        if not preset:
+            raise ValueError(f"Failed to load preset with ID '{preset_id}'")
+
+        return preset
 
     def create_preset(
         self,
@@ -257,6 +349,12 @@ class BenchmarkPresetService:
         # Convert config to dict (Pydantic model_dump)
         config_dict = config.model_dump(mode="json")
 
+        # Sanitize model configurations
+        if "answering_models" in config_dict:
+            config_dict["answering_models"] = [self._sanitize_model_config(m) for m in config_dict["answering_models"]]
+        if "parsing_models" in config_dict:
+            config_dict["parsing_models"] = [self._sanitize_model_config(m) for m in config_dict["parsing_models"]]
+
         # Create preset
         preset = {
             "id": preset_id,
@@ -267,10 +365,9 @@ class BenchmarkPresetService:
             "updated_at": now,
         }
 
-        # Load, update, and save
-        presets = self._load_presets()
-        presets[preset_id] = preset
-        self._save_presets(presets)
+        # Generate filename and save
+        filename = self._sanitize_filename(name)
+        self._save_preset_to_file(preset, filename)
 
         logger.info(f"Created preset '{name}' with ID {preset_id}")
         return preset
@@ -296,12 +393,17 @@ class BenchmarkPresetService:
         Raises:
             ValueError: If preset not found or validation fails
         """
-        # Load presets
-        presets = self._load_presets()
-        if preset_id not in presets:
+        # Find existing preset file
+        old_filepath = self._find_preset_file(preset_id)
+        if not old_filepath:
             raise ValueError(f"Preset with ID '{preset_id}' not found")
 
-        preset = presets[preset_id]
+        # Load existing preset
+        preset = self._load_preset_from_file(old_filepath)
+        if not preset:
+            raise ValueError(f"Failed to load preset with ID '{preset_id}'")
+
+        old_name = preset.get("name")
 
         # Update name if provided
         if name is not None:
@@ -311,6 +413,15 @@ class BenchmarkPresetService:
         # Update config if provided
         if config is not None:
             config_dict = config.model_dump(mode="json")
+
+            # Sanitize model configurations
+            if "answering_models" in config_dict:
+                config_dict["answering_models"] = [
+                    self._sanitize_model_config(m) for m in config_dict["answering_models"]
+                ]
+            if "parsing_models" in config_dict:
+                config_dict["parsing_models"] = [self._sanitize_model_config(m) for m in config_dict["parsing_models"]]
+
             preset["config"] = config_dict
 
         # Update description if provided (None means don't change, empty string clears it)
@@ -322,9 +433,28 @@ class BenchmarkPresetService:
         # Update timestamp
         preset["updated_at"] = datetime.now(UTC).isoformat()
 
-        # Save
-        presets[preset_id] = preset
-        self._save_presets(presets)
+        # Determine new filename
+        new_name = preset["name"]
+        new_filename = self._sanitize_filename(new_name)
+        new_filepath = self.presets_dir_path / new_filename
+
+        # If name changed, we need to check if file needs to be renamed
+        if name is not None and old_name != new_name:
+            # Check if new filename would conflict with an existing file (different preset)
+            if new_filepath.exists():
+                # Check if it's a different preset
+                existing_preset = self._load_preset_from_file(new_filepath)
+                if existing_preset and existing_preset.get("id") != preset_id:
+                    # Conflict with another preset - this shouldn't happen due to name validation
+                    # but handle it gracefully
+                    raise ValueError("Filename conflict: another preset uses the same sanitized filename")
+
+            # Safe to rename: delete old file, write new one
+            old_filepath.unlink()
+            self._save_preset_to_file(preset, new_filename)
+        else:
+            # No name change, just update the existing file
+            self._save_preset_to_file(preset, old_filepath.name)
 
         logger.info(f"Updated preset '{preset['name']}' (ID: {preset_id})")
         return preset
@@ -338,40 +468,38 @@ class BenchmarkPresetService:
         Raises:
             ValueError: If preset not found
         """
-        presets = self._load_presets()
-        if preset_id not in presets:
+        filepath = self._find_preset_file(preset_id)
+        if not filepath:
             raise ValueError(f"Preset with ID '{preset_id}' not found")
 
-        preset_name = presets[preset_id].get("name", "Unknown")
-        del presets[preset_id]
-        self._save_presets(presets)
+        # Load preset to get name for logging
+        preset = self._load_preset_from_file(filepath)
+        preset_name = preset.get("name", "Unknown") if preset else "Unknown"
+
+        # Delete file
+        filepath.unlink()
 
         logger.info(f"Deleted preset '{preset_name}' (ID: {preset_id})")
 
-    def get_file_status(self) -> dict[str, Any]:
-        """Get status information about the presets file.
+    def get_directory_status(self) -> dict[str, Any]:
+        """Get status information about the presets directory.
 
         Returns:
-            Dictionary with file status information
+            Dictionary with directory status information
         """
         status = {
-            "file_exists": self.presets_file_path.exists(),
-            "file_path": str(self.presets_file_path),
+            "directory_exists": self.presets_dir_path.exists(),
+            "directory_path": str(self.presets_dir_path),
             "preset_count": 0,
-            "last_modified": None,
         }
 
-        if status["file_exists"]:
+        if status["directory_exists"]:
             try:
-                # Get file modification time
-                stat = self.presets_file_path.stat()
-                status["last_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
-
                 # Count presets
-                presets = self._load_presets()
+                presets = self._scan_presets()
                 status["preset_count"] = len(presets)
 
             except Exception as e:
-                logger.error(f"Error getting file status: {e}")
+                logger.error(f"Error getting directory status: {e}")
 
         return status

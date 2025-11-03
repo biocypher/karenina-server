@@ -1,6 +1,5 @@
 """Tests for benchmark preset API endpoints."""
 
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -12,30 +11,19 @@ from karenina_server.server import create_fastapi_app
 
 
 @pytest.fixture
-def temp_presets_file():
-    """Create a temporary benchmark_presets.json file for testing."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        initial_presets = {"presets": {}}
-        json.dump(initial_presets, f)
-        temp_path = Path(f.name)
-
-    yield temp_path
-
-    # Cleanup
-    if temp_path.exists():
-        temp_path.unlink()
-    # Also cleanup backup if it exists
-    backup_path = temp_path.with_suffix(".json.backup")
-    if backup_path.exists():
-        backup_path.unlink()
+def temp_presets_dir():
+    """Create a temporary presets directory for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        yield temp_path
 
 
 @pytest.fixture
-def client(temp_presets_file):
-    """Create a test client with temporary presets file."""
+def client(temp_presets_dir):
+    """Create a test client with temporary presets directory."""
     webapp_dir = Path(__file__).parent.parent / "webapp"
 
-    # Patch the preset_service global instance to use our temp file
+    # Patch the preset_service global instance to use our temp directory
     with patch("karenina_server.api.preset_handlers.preset_service") as mock_service:
         from karenina_server.services.preset_service import BenchmarkPresetService
 
@@ -44,7 +32,7 @@ def client(temp_presets_file):
         import karenina_server.api.preset_handlers as handlers
 
         original_service = handlers.preset_service
-        handlers.preset_service = BenchmarkPresetService(presets_file_path=temp_presets_file)
+        handlers.preset_service = BenchmarkPresetService(presets_dir_path=temp_presets_dir)
 
         app = create_fastapi_app(webapp_dir)
         test_client = TestClient(app)
