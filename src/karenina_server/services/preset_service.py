@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,40 +104,6 @@ class BenchmarkPresetService:
                 logger.error(f"Error creating presets directory: {e}")
                 raise
 
-    def _sanitize_filename(self, name: str) -> str:
-        """Sanitize preset name to create a safe filename.
-
-        Args:
-            name: Preset name
-
-        Returns:
-            Sanitized filename (e.g., "Quick Test" -> "quick-test.json")
-        """
-        # Convert to lowercase
-        sanitized = name.lower()
-
-        # Replace spaces with hyphens
-        sanitized = sanitized.replace(" ", "-")
-
-        # Keep only alphanumeric characters and hyphens
-        sanitized = re.sub(r"[^a-z0-9-]", "", sanitized)
-
-        # Remove consecutive hyphens
-        sanitized = re.sub(r"-+", "-", sanitized)
-
-        # Strip leading/trailing hyphens
-        sanitized = sanitized.strip("-")
-
-        # Ensure it's not empty
-        if not sanitized:
-            sanitized = "preset"
-
-        # Limit length (reserve space for .json extension)
-        if len(sanitized) > 96:
-            sanitized = sanitized[:96]
-
-        return f"{sanitized}.json"
-
     def _load_preset_from_file(self, filepath: Path) -> dict[str, Any] | None:
         """Load a single preset from a JSON file.
 
@@ -219,45 +184,8 @@ class BenchmarkPresetService:
                 return filepath
         return None
 
-    def _sanitize_model_config(self, model: dict[str, Any]) -> dict[str, Any]:
-        """Sanitize model configuration to remove interface-specific fields.
-
-        Args:
-            model: Model configuration dictionary
-
-        Returns:
-            Sanitized model configuration
-        """
-        sanitized: dict[str, Any] = {
-            "id": model["id"],
-            "model_provider": model["model_provider"],
-            "model_name": model["model_name"],
-            "temperature": model["temperature"],
-            "interface": model["interface"],
-            "system_prompt": model["system_prompt"],
-        }
-
-        # Include max_retries if present
-        if "max_retries" in model:
-            sanitized["max_retries"] = model["max_retries"]
-
-        # Only include endpoint fields for openai_endpoint interface
-        if model["interface"] == "openai_endpoint":
-            if model.get("endpoint_base_url"):
-                sanitized["endpoint_base_url"] = model["endpoint_base_url"]
-            if model.get("endpoint_api_key"):
-                sanitized["endpoint_api_key"] = model["endpoint_api_key"]
-
-        # Only include MCP fields if they have values
-        if model.get("mcp_urls_dict"):
-            sanitized["mcp_urls_dict"] = model["mcp_urls_dict"]
-        if model.get("mcp_tool_filter"):
-            sanitized["mcp_tool_filter"] = model["mcp_tool_filter"]
-
-        return sanitized
-
     def _validate_preset_data(self, name: str, description: str | None, preset_id: str | None = None) -> None:
-        """Validate preset metadata.
+        """Validate preset metadata with uniqueness check.
 
         Args:
             name: Preset name
@@ -267,21 +195,16 @@ class BenchmarkPresetService:
         Raises:
             ValueError: If validation fails
         """
-        # Validate name
-        if not name or not isinstance(name, str) or len(name.strip()) == 0:
-            raise ValueError("Preset name cannot be empty")
+        # Use core validation for basic checks (length limits)
+        from karenina.schemas.workflow.verification import VerificationConfig
 
-        if len(name) > 100:
-            raise ValueError("Preset name cannot exceed 100 characters")
+        VerificationConfig.validate_preset_metadata(name, description)
 
-        # Validate description if provided
-        if description is not None:
-            if not isinstance(description, str):
-                raise ValueError("Description must be a string")
-            if len(description) > 500:
-                raise ValueError("Description cannot exceed 500 characters")
+        # Additional type check for description (server-specific)
+        if description is not None and not isinstance(description, str):
+            raise ValueError("Description must be a string")
 
-        # Check name uniqueness
+        # Server-specific: Check name uniqueness across all presets
         presets = self._scan_presets()
         for pid, preset in presets.items():
             # Skip the preset being updated
@@ -347,26 +270,32 @@ class BenchmarkPresetService:
         now = datetime.now(UTC).isoformat()
 
         # Convert config to dict (Pydantic model_dump)
+        from karenina.schemas.workflow.verification import VerificationConfig
+
         config_dict = config.model_dump(mode="json")
 
-        # Sanitize model configurations
+        # Sanitize model configurations using core utility
         if "answering_models" in config_dict:
-            config_dict["answering_models"] = [self._sanitize_model_config(m) for m in config_dict["answering_models"]]
+            config_dict["answering_models"] = [
+                VerificationConfig.sanitize_model_config(m) for m in config_dict["answering_models"]
+            ]
         if "parsing_models" in config_dict:
-            config_dict["parsing_models"] = [self._sanitize_model_config(m) for m in config_dict["parsing_models"]]
+            config_dict["parsing_models"] = [
+                VerificationConfig.sanitize_model_config(m) for m in config_dict["parsing_models"]
+            ]
 
-        # Create preset
-        preset = {
-            "id": preset_id,
-            "name": name,
-            "description": description,
-            "config": config_dict,
-            "created_at": now,
-            "updated_at": now,
-        }
+        # Create preset structure using core utility
+        preset: dict[str, Any] = VerificationConfig.create_preset_structure(
+            preset_id=preset_id,
+            name=name,
+            description=description,
+            config_dict=config_dict,
+            created_at=now,
+            updated_at=now,
+        )
 
-        # Generate filename and save
-        filename = self._sanitize_filename(name)
+        # Generate filename and save using core utility
+        filename = VerificationConfig.sanitize_preset_name(name)
         self._save_preset_to_file(preset, filename)
 
         logger.info(f"Created preset '{name}' with ID {preset_id}")
@@ -412,15 +341,19 @@ class BenchmarkPresetService:
 
         # Update config if provided
         if config is not None:
+            from karenina.schemas.workflow.verification import VerificationConfig
+
             config_dict = config.model_dump(mode="json")
 
-            # Sanitize model configurations
+            # Sanitize model configurations using core utility
             if "answering_models" in config_dict:
                 config_dict["answering_models"] = [
-                    self._sanitize_model_config(m) for m in config_dict["answering_models"]
+                    VerificationConfig.sanitize_model_config(m) for m in config_dict["answering_models"]
                 ]
             if "parsing_models" in config_dict:
-                config_dict["parsing_models"] = [self._sanitize_model_config(m) for m in config_dict["parsing_models"]]
+                config_dict["parsing_models"] = [
+                    VerificationConfig.sanitize_model_config(m) for m in config_dict["parsing_models"]
+                ]
 
             preset["config"] = config_dict
 
@@ -433,9 +366,11 @@ class BenchmarkPresetService:
         # Update timestamp
         preset["updated_at"] = datetime.now(UTC).isoformat()
 
-        # Determine new filename
+        # Determine new filename using core utility
+        from karenina.schemas.workflow.verification import VerificationConfig
+
         new_name = preset["name"]
-        new_filename = self._sanitize_filename(new_name)
+        new_filename = VerificationConfig.sanitize_preset_name(new_name)
         new_filepath = self.presets_dir_path / new_filename
 
         # If name changed, we need to check if file needs to be renamed
