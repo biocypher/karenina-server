@@ -511,6 +511,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     from .api.generation_handlers import register_generation_routes
     from .api.health_handlers import router as health_router
     from .api.mcp_handlers import register_mcp_routes
+    from .api.preset_handlers import router as preset_router
     from .api.rubric_handlers import router as rubric_router
     from .api.verification_handlers import register_verification_routes
 
@@ -539,6 +540,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
+    app.include_router(preset_router, prefix="/api")
 
     # Set up event loop for broadcasters on startup
     @app.on_event("startup")
