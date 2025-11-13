@@ -8,7 +8,15 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from karenina.schemas.domain import Rubric
-from karenina.schemas.workflow import FinishedTemplate, VerificationConfig, VerificationJob, VerificationResult
+from karenina.schemas.workflow import (
+    FinishedTemplate,
+    VerificationConfig,
+    VerificationJob,
+    VerificationResult,
+    VerificationResultMetadata,
+    VerificationResultTemplate,
+)
+from karenina.utils.checkpoint import generate_template_id
 
 from .progress_broadcaster import ProgressBroadcaster
 
@@ -291,21 +299,27 @@ class VerificationService:
                         parsing_model_str = f"{parsing_model.model_provider}/{parsing_model.model_name}"
 
                     error_result = VerificationResult(
-                        question_id=template.question_id,
-                        success=False,
-                        error=f"Verification error: {error!s}",
-                        question_text=template.question_text,
-                        raw_llm_response="",
-                        answering_model=answering_model_str,
-                        parsing_model=parsing_model_str,
-                        execution_time=0.0,
-                        timestamp=datetime.now().isoformat(),
-                        answering_system_prompt=answering_model.system_prompt,
-                        parsing_system_prompt=parsing_model.system_prompt,
-                        run_name=job.run_name,
-                        job_id=job.job_id,
-                        answering_replicate=answering_replicate,
-                        parsing_replicate=parsing_replicate,
+                        metadata=VerificationResultMetadata(
+                            question_id=template.question_id,
+                            template_id=generate_template_id(template.template_code),
+                            completed_without_errors=False,
+                            error=f"Verification error: {error!s}",
+                            question_text=template.question_text,
+                            keywords=template.keywords,
+                            answering_model=answering_model_str,
+                            parsing_model=parsing_model_str,
+                            answering_system_prompt=answering_model.system_prompt,
+                            parsing_system_prompt=parsing_model.system_prompt,
+                            execution_time=0.0,
+                            timestamp=datetime.now().isoformat(),
+                            run_name=job.run_name,
+                            job_id=job.job_id,
+                            answering_replicate=answering_replicate,
+                            parsing_replicate=parsing_replicate,
+                        ),
+                        template=VerificationResultTemplate(
+                            raw_llm_response="",
+                        ),
                     )
                     error_results[combination_id] = error_result
 
