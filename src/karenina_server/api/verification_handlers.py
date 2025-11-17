@@ -27,7 +27,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         try:
             import json
 
-            from karenina.schemas import ManualRubricTrait, MetricRubricTrait, Rubric, RubricTrait
+            from karenina.schemas import CallableTrait, LLMRubricTrait, MetricRubricTrait, RegexTrait, Rubric
             from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
 
             # Parse request
@@ -67,21 +67,29 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 if template.question_rubric:
                     rubric_dict = template.question_rubric
 
-                    # Parse traits
-                    traits = [RubricTrait(**trait_data) for trait_data in rubric_dict.get("traits", [])]
+                    # Parse LLM traits
+                    traits = [LLMRubricTrait(**trait_data) for trait_data in rubric_dict.get("traits", [])]
 
-                    # Parse manual_traits
-                    manual_traits = [
-                        ManualRubricTrait(**trait_data) for trait_data in rubric_dict.get("manual_traits", [])
+                    # Parse regex traits
+                    regex_traits = [RegexTrait(**trait_data) for trait_data in rubric_dict.get("regex_traits", [])]
+
+                    # Parse callable traits
+                    callable_traits = [
+                        CallableTrait(**trait_data) for trait_data in rubric_dict.get("callable_traits", [])
                     ]
 
-                    # Parse metric_traits
+                    # Parse metric traits
                     metric_traits = [
                         MetricRubricTrait(**trait_data) for trait_data in rubric_dict.get("metric_traits", [])
                     ]
 
                     # Create Rubric object
-                    rubric = Rubric(traits=traits, manual_traits=manual_traits, metric_traits=metric_traits)
+                    rubric = Rubric(
+                        traits=traits,
+                        regex_traits=regex_traits,
+                        callable_traits=callable_traits,
+                        metric_traits=metric_traits,
+                    )
 
                     # Replace dict with Rubric object (direct attribute assignment)
                     template.question_rubric = rubric

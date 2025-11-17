@@ -5,7 +5,7 @@ API handlers for rubric management.
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from karenina.schemas import Question, Rubric, RubricTrait
+from karenina.schemas import LLMRubricTrait, Question, Rubric
 from pydantic import BaseModel
 
 from karenina_server.services.generation_service import GenerationService
@@ -33,9 +33,9 @@ class RubricTraitGenerationRequest(BaseModel):
 
 
 class RubricTraitGenerationResponse(BaseModel):
-    """Response containing generated rubric traits."""
+    """Response containing generated LLM rubric traits."""
 
-    traits: list[RubricTrait]
+    traits: list[LLMRubricTrait]
     job_id: str | None = None
 
 
@@ -258,8 +258,8 @@ def _build_rubric_generation_prompt(questions: list[Question], user_suggestions:
     return user_prompt
 
 
-def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
-    """Parse generated text into RubricTrait objects."""
+def _parse_generated_traits(generated_text: str) -> list[LLMRubricTrait]:
+    """Parse generated text into LLMRubricTrait objects."""
     import json
     import re
 
@@ -275,8 +275,8 @@ def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
     if not json_content:
         # Fallback: create some default traits
         return [
-            RubricTrait(name="clarity", description="Is the response clear and easy to understand?", kind="boolean"),
-            RubricTrait(
+            LLMRubricTrait(name="clarity", description="Is the response clear and easy to understand?", kind="boolean"),
+            LLMRubricTrait(
                 name="completeness",
                 description="How complete is the response on a scale of 1-5?",
                 kind="score",
@@ -290,7 +290,7 @@ def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
         traits = []
 
         for trait_dict in trait_data:
-            trait = RubricTrait(**trait_dict)
+            trait = LLMRubricTrait(**trait_dict)
             traits.append(trait)
 
         return traits
@@ -298,8 +298,8 @@ def _parse_generated_traits(generated_text: str) -> list[RubricTrait]:
     except (json.JSONDecodeError, ValueError):
         # Fallback to default traits if parsing fails
         return [
-            RubricTrait(name="accuracy", description="Is the response factually accurate?", kind="boolean"),
-            RubricTrait(
+            LLMRubricTrait(name="accuracy", description="Is the response factually accurate?", kind="boolean"),
+            LLMRubricTrait(
                 name="relevance",
                 description="How relevant is the response to the question (1-5)?",
                 kind="score",
