@@ -270,7 +270,7 @@ def register_database_routes(
         try:
             # Import required classes
             from karenina.benchmark.benchmark import Benchmark
-            from karenina.schemas import Question, Rubric, RubricTrait
+            from karenina.schemas import LLMRubricTrait, Question, Rubric
 
             db_config = DBConfig(storage_url=request.storage_url)
 
@@ -307,11 +307,12 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    from karenina.schemas import ManualRubricTrait, MetricRubricTrait
+                    from karenina.schemas import CallableTrait, MetricRubricTrait, RegexTrait
 
                     rubric_data = q_data["question_rubric"]
                     traits = []
-                    manual_traits = []
+                    regex_traits = []
+                    callable_traits = []
                     metric_traits = []
 
                     # Process LLM-based traits
@@ -323,7 +324,7 @@ def register_database_routes(
                         elif kind in ("score", "Score"):
                             kind = "score"
 
-                        trait = RubricTrait(
+                        trait = LLMRubricTrait(
                             name=trait_data["name"],
                             description=trait_data.get("description"),
                             kind=kind,
@@ -332,17 +333,29 @@ def register_database_routes(
                         )
                         traits.append(trait)
 
-                    # Process manual (regex) traits
-                    for manual_trait_data in rubric_data.get("manual_traits", []):
-                        manual_trait = ManualRubricTrait(
-                            name=manual_trait_data["name"],
-                            description=manual_trait_data.get("description"),
-                            pattern=manual_trait_data.get("pattern"),
-                            callable_name=manual_trait_data.get("callable_name"),
-                            case_sensitive=manual_trait_data.get("case_sensitive", True),
-                            invert_result=manual_trait_data.get("invert_result", False),
+                    # Process regex traits
+                    for regex_trait_data in rubric_data.get("regex_traits", []):
+                        regex_trait = RegexTrait(
+                            name=regex_trait_data["name"],
+                            description=regex_trait_data.get("description"),
+                            pattern=regex_trait_data.get("pattern", ""),
+                            case_sensitive=regex_trait_data.get("case_sensitive", True),
+                            invert_result=regex_trait_data.get("invert_result", False),
                         )
-                        manual_traits.append(manual_trait)
+                        regex_traits.append(regex_trait)
+
+                    # Process callable traits
+                    for callable_trait_data in rubric_data.get("callable_traits", []):
+                        callable_trait = CallableTrait(
+                            name=callable_trait_data["name"],
+                            description=callable_trait_data.get("description"),
+                            callable_code=callable_trait_data.get("callable_code", b""),
+                            kind=callable_trait_data.get("kind", "boolean"),
+                            min_score=callable_trait_data.get("min_score"),
+                            max_score=callable_trait_data.get("max_score"),
+                            invert_result=callable_trait_data.get("invert_result", False),
+                        )
+                        callable_traits.append(callable_trait)
 
                     # Process metric traits
                     for metric_trait_data in rubric_data.get("metric_traits", []):
@@ -357,17 +370,23 @@ def register_database_routes(
                         )
                         metric_traits.append(metric_trait)
 
-                    if traits or manual_traits or metric_traits:
-                        rubric = Rubric(traits=traits, manual_traits=manual_traits, metric_traits=metric_traits)
+                    if traits or regex_traits or callable_traits or metric_traits:
+                        rubric = Rubric(
+                            traits=traits,
+                            regex_traits=regex_traits,
+                            callable_traits=callable_traits,
+                            metric_traits=metric_traits,
+                        )
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas import ManualRubricTrait
+                from karenina.schemas import CallableTrait, RegexTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
-                manual_traits = []
+                regex_traits = []
+                callable_traits = []
 
                 # Process LLM-based traits
                 for trait_data in global_rubric_data.get("traits", []):
@@ -378,7 +397,7 @@ def register_database_routes(
                     elif kind in ("score", "Score"):
                         kind = "score"
 
-                    trait = RubricTrait(
+                    trait = LLMRubricTrait(
                         name=trait_data["name"],
                         description=trait_data.get("description"),
                         kind=kind,
@@ -387,20 +406,34 @@ def register_database_routes(
                     )
                     traits.append(trait)
 
-                # Process manual (regex) traits
-                for manual_trait_data in global_rubric_data.get("manual_traits", []):
-                    manual_trait = ManualRubricTrait(
-                        name=manual_trait_data["name"],
-                        description=manual_trait_data.get("description"),
-                        pattern=manual_trait_data.get("pattern"),
-                        callable_name=manual_trait_data.get("callable_name"),
-                        case_sensitive=manual_trait_data.get("case_sensitive", True),
-                        invert_result=manual_trait_data.get("invert_result", False),
+                # Process regex traits
+                for regex_trait_data in global_rubric_data.get("regex_traits", []):
+                    regex_trait = RegexTrait(
+                        name=regex_trait_data["name"],
+                        description=regex_trait_data.get("description"),
+                        pattern=regex_trait_data.get("pattern", ""),
+                        case_sensitive=regex_trait_data.get("case_sensitive", True),
+                        invert_result=regex_trait_data.get("invert_result", False),
                     )
-                    manual_traits.append(manual_trait)
+                    regex_traits.append(regex_trait)
 
-                if traits or manual_traits:
-                    benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
+                # Process callable traits
+                for callable_trait_data in global_rubric_data.get("callable_traits", []):
+                    callable_trait = CallableTrait(
+                        name=callable_trait_data["name"],
+                        description=callable_trait_data.get("description"),
+                        callable_code=callable_trait_data.get("callable_code", b""),
+                        kind=callable_trait_data.get("kind", "boolean"),
+                        min_score=callable_trait_data.get("min_score"),
+                        max_score=callable_trait_data.get("max_score"),
+                        invert_result=callable_trait_data.get("invert_result", False),
+                    )
+                    callable_traits.append(callable_trait)
+
+                if traits or regex_traits or callable_traits:
+                    benchmark.global_rubric = Rubric(
+                        traits=traits, regex_traits=regex_traits, callable_traits=callable_traits
+                    )
 
             # Save to database (will overwrite if exists, or detect duplicates if requested)
             result = save_benchmark(benchmark, db_config, detect_duplicates_only=request.detect_duplicates)
@@ -441,7 +474,7 @@ def register_database_routes(
         try:
             # Import required classes
             from karenina.benchmark.benchmark import Benchmark
-            from karenina.schemas import Question, Rubric, RubricTrait
+            from karenina.schemas import LLMRubricTrait, Question, Rubric
 
             db_config = DBConfig(storage_url=request.storage_url)
 
@@ -493,11 +526,12 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    from karenina.schemas import ManualRubricTrait, MetricRubricTrait
+                    from karenina.schemas import CallableTrait, MetricRubricTrait, RegexTrait
 
                     rubric_data = q_data["question_rubric"]
                     traits = []
-                    manual_traits = []
+                    regex_traits = []
+                    callable_traits = []
                     metric_traits = []
 
                     # Process LLM-based traits
@@ -509,7 +543,7 @@ def register_database_routes(
                         elif kind in ("score", "Score"):
                             kind = "score"
 
-                        trait = RubricTrait(
+                        trait = LLMRubricTrait(
                             name=trait_data["name"],
                             description=trait_data.get("description"),
                             kind=kind,
@@ -518,17 +552,29 @@ def register_database_routes(
                         )
                         traits.append(trait)
 
-                    # Process manual (regex) traits
-                    for manual_trait_data in rubric_data.get("manual_traits", []):
-                        manual_trait = ManualRubricTrait(
-                            name=manual_trait_data["name"],
-                            description=manual_trait_data.get("description"),
-                            pattern=manual_trait_data.get("pattern"),
-                            callable_name=manual_trait_data.get("callable_name"),
-                            case_sensitive=manual_trait_data.get("case_sensitive", True),
-                            invert_result=manual_trait_data.get("invert_result", False),
+                    # Process regex traits
+                    for regex_trait_data in rubric_data.get("regex_traits", []):
+                        regex_trait = RegexTrait(
+                            name=regex_trait_data["name"],
+                            description=regex_trait_data.get("description"),
+                            pattern=regex_trait_data.get("pattern", ""),
+                            case_sensitive=regex_trait_data.get("case_sensitive", True),
+                            invert_result=regex_trait_data.get("invert_result", False),
                         )
-                        manual_traits.append(manual_trait)
+                        regex_traits.append(regex_trait)
+
+                    # Process callable traits
+                    for callable_trait_data in rubric_data.get("callable_traits", []):
+                        callable_trait = CallableTrait(
+                            name=callable_trait_data["name"],
+                            description=callable_trait_data.get("description"),
+                            callable_code=callable_trait_data.get("callable_code", b""),
+                            kind=callable_trait_data.get("kind", "boolean"),
+                            min_score=callable_trait_data.get("min_score"),
+                            max_score=callable_trait_data.get("max_score"),
+                            invert_result=callable_trait_data.get("invert_result", False),
+                        )
+                        callable_traits.append(callable_trait)
 
                     # Process metric traits
                     for metric_trait_data in rubric_data.get("metric_traits", []):
@@ -543,17 +589,23 @@ def register_database_routes(
                         )
                         metric_traits.append(metric_trait)
 
-                    if traits or manual_traits or metric_traits:
-                        rubric = Rubric(traits=traits, manual_traits=manual_traits, metric_traits=metric_traits)
+                    if traits or regex_traits or callable_traits or metric_traits:
+                        rubric = Rubric(
+                            traits=traits,
+                            regex_traits=regex_traits,
+                            callable_traits=callable_traits,
+                            metric_traits=metric_traits,
+                        )
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas import ManualRubricTrait
+                from karenina.schemas import CallableTrait, RegexTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
-                manual_traits = []
+                regex_traits = []
+                callable_traits = []
 
                 # Process LLM-based traits
                 for trait_data in global_rubric_data.get("traits", []):
@@ -564,7 +616,7 @@ def register_database_routes(
                     elif kind in ("score", "Score"):
                         kind = "score"
 
-                    trait = RubricTrait(
+                    trait = LLMRubricTrait(
                         name=trait_data["name"],
                         description=trait_data.get("description"),
                         kind=kind,
@@ -573,20 +625,34 @@ def register_database_routes(
                     )
                     traits.append(trait)
 
-                # Process manual (regex) traits
-                for manual_trait_data in global_rubric_data.get("manual_traits", []):
-                    manual_trait = ManualRubricTrait(
-                        name=manual_trait_data["name"],
-                        description=manual_trait_data.get("description"),
-                        pattern=manual_trait_data.get("pattern"),
-                        callable_name=manual_trait_data.get("callable_name"),
-                        case_sensitive=manual_trait_data.get("case_sensitive", True),
-                        invert_result=manual_trait_data.get("invert_result", False),
+                # Process regex traits
+                for regex_trait_data in global_rubric_data.get("regex_traits", []):
+                    regex_trait = RegexTrait(
+                        name=regex_trait_data["name"],
+                        description=regex_trait_data.get("description"),
+                        pattern=regex_trait_data.get("pattern", ""),
+                        case_sensitive=regex_trait_data.get("case_sensitive", True),
+                        invert_result=regex_trait_data.get("invert_result", False),
                     )
-                    manual_traits.append(manual_trait)
+                    regex_traits.append(regex_trait)
 
-                if traits or manual_traits:
-                    benchmark.global_rubric = Rubric(traits=traits, manual_traits=manual_traits)
+                # Process callable traits
+                for callable_trait_data in global_rubric_data.get("callable_traits", []):
+                    callable_trait = CallableTrait(
+                        name=callable_trait_data["name"],
+                        description=callable_trait_data.get("description"),
+                        callable_code=callable_trait_data.get("callable_code", b""),
+                        kind=callable_trait_data.get("kind", "boolean"),
+                        min_score=callable_trait_data.get("min_score"),
+                        max_score=callable_trait_data.get("max_score"),
+                        invert_result=callable_trait_data.get("invert_result", False),
+                    )
+                    callable_traits.append(callable_trait)
+
+                if traits or regex_traits or callable_traits:
+                    benchmark.global_rubric = Rubric(
+                        traits=traits, regex_traits=regex_traits, callable_traits=callable_traits
+                    )
 
             # Save to database (normal save, not detect-only)
             save_benchmark(benchmark, db_config, detect_duplicates_only=False)

@@ -14,6 +14,7 @@ from karenina.schemas.workflow import (
     VerificationJob,
     VerificationResult,
     VerificationResultMetadata,
+    VerificationResultSet,
     VerificationResultTemplate,
 )
 from karenina.utils.checkpoint import generate_template_id
@@ -42,7 +43,7 @@ class VerificationService:
         self.jobs: dict[str, VerificationJob] = {}
         self.futures: dict[str, Any] = {}
         # Store all historical results keyed by job_id
-        self.historical_results: dict[str, dict[str, VerificationResult]] = {}
+        self.historical_results: dict[str, VerificationResultSet] = {}
         self.broadcaster = ProgressBroadcaster()
 
     def start_verification(
@@ -115,19 +116,19 @@ class VerificationService:
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
 
-    def get_job_results(self, job_id: str) -> dict[str, VerificationResult] | None:
+    def get_job_results(self, job_id: str) -> VerificationResultSet | None:
         """Get the results of a completed job."""
         job = self.jobs.get(job_id)
         if job and job.status == "completed":
-            return job.results  # type: ignore[no-any-return]
+            return job.result_set
         return None
 
-    def get_all_historical_results(self) -> dict[str, VerificationResult]:
+    def get_all_historical_results(self) -> VerificationResultSet:
         """Get all historical results across all completed jobs."""
-        all_results = {}
-        for job_results in self.historical_results.values():
-            all_results.update(job_results)
-        return all_results
+        all_results = []
+        for result_set in self.historical_results.values():
+            all_results.extend(result_set.results)
+        return VerificationResultSet(results=all_results)
 
     def cancel_job(self, job_id: str) -> bool:
         """Cancel a verification job."""
@@ -238,11 +239,12 @@ class VerificationService:
                 progress_callback=progress_callback,
             )
 
-            # Update job with results
-            job.results = results
+            # Store the VerificationResultSet directly
+            job.result_set = results
             job.processed_count = len(results)
-            job.successful_count = sum(1 for r in results.values() if r.completed_without_errors)
-            job.failed_count = len(results) - job.successful_count
+            # Count successful and failed results
+            job.successful_count = sum(1 for r in results if r.metadata.completed_without_errors)
+            job.failed_count = sum(1 for r in results if not r.metadata.completed_without_errors)
 
             # Finalize
             job.status = "completed"
@@ -250,7 +252,9 @@ class VerificationService:
             job.percentage = 100.0
             job.last_task_duration = None  # Clear last task duration on completion
             job.in_progress_questions = []
-            self.historical_results[job.job_id] = job.results.copy()
+            # Store result_set in historical results
+            if job.result_set:
+                self.historical_results[job.job_id] = job.result_set
 
             self._emit_progress_event(job.job_id, "job_completed")
 
@@ -355,9 +359,9 @@ class VerificationService:
             "in_progress_questions": job.in_progress_questions,
         }
 
-        # Include results if completed
-        if job.status == "completed":
-            progress_data["results"] = job.results
+        # Include result_set if completed
+        if job.status == "completed" and job.result_set:
+            progress_data["result_set"] = job.result_set
 
         return progress_data
 
