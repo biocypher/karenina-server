@@ -241,8 +241,13 @@ class VerificationService:
             # Update job with results
             job.results = results
             job.processed_count = len(results)
-            job.successful_count = sum(1 for r in results.values() if r.completed_without_errors)
-            job.failed_count = len(results) - job.successful_count
+            # Count successful results across all result sets
+            job.successful_count = sum(
+                1 for result_set in results.values() for r in result_set.results if r.metadata.completed_without_errors
+            )
+            # Count total individual results
+            total_results = sum(len(result_set.results) for result_set in results.values())
+            job.failed_count = total_results - job.successful_count
 
             # Finalize
             job.status = "completed"

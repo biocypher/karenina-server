@@ -68,7 +68,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     rubric_dict = template.question_rubric
 
                     # Parse LLM traits
-                    traits = [LLMRubricTrait(**trait_data) for trait_data in rubric_dict.get("traits", [])]
+                    llm_traits = [LLMRubricTrait(**trait_data) for trait_data in rubric_dict.get("llm_traits", [])]
 
                     # Parse regex traits
                     regex_traits = [RegexTrait(**trait_data) for trait_data in rubric_dict.get("regex_traits", [])]
@@ -85,7 +85,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
                     # Create Rubric object
                     rubric = Rubric(
-                        traits=traits,
+                        llm_traits=llm_traits,
                         regex_traits=regex_traits,
                         callable_traits=callable_traits,
                         metric_traits=metric_traits,
