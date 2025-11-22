@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
 try:
-    import karenina.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -62,8 +62,10 @@ def register_generation_routes(
                 current_question=progress.get("current_question", ""),
                 processed_count=progress.get("processed_count", 0),
                 total_count=progress.get("total_questions", 0),
-                estimated_time_remaining=progress.get("estimated_time_remaining"),
+                duration_seconds=progress.get("duration_seconds"),
+                last_task_duration=progress.get("last_task_duration"),
                 error=progress.get("error_message"),
+                in_progress_questions=progress.get("in_progress_questions", []),
             )
 
             # Add result if completed
@@ -95,3 +97,60 @@ def register_generation_routes(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
+
+    @app.websocket("/ws/generation-progress/{job_id}")  # type: ignore[misc]
+    async def websocket_generation_progress(websocket: WebSocket, job_id: str) -> None:
+        """WebSocket endpoint for real-time generation progress updates."""
+        import asyncio
+
+        from karenina_server.services.generation_service import generation_service
+
+        # Validate job exists
+        job = generation_service.jobs.get(job_id)
+        if not job:
+            await websocket.close(code=1008, reason="Job not found")
+            return
+
+        # Accept the connection
+        await websocket.accept()
+
+        # Set the event loop for the broadcaster if not already set
+        if generation_service.broadcaster._event_loop is None:
+            generation_service.broadcaster.set_event_loop(asyncio.get_running_loop())
+
+        # Subscribe to progress updates
+        await generation_service.broadcaster.subscribe(job_id, websocket)
+
+        try:
+            # Send current state immediately
+            progress = generation_service.get_progress(job_id)
+            if progress:
+                await websocket.send_json(
+                    {
+                        "type": "snapshot",
+                        "job_id": job_id,
+                        "status": progress["status"],
+                        "percentage": progress["percentage"],
+                        "processed": progress["processed_count"],
+                        "total": progress["total_questions"],
+                        "in_progress_questions": progress["in_progress_questions"],
+                        "start_time": progress["start_time"],  # Unix timestamp for client-side live clock
+                        "duration_seconds": progress["duration_seconds"],
+                        "last_task_duration": progress["last_task_duration"],
+                        "current_question": progress["current_question"],
+                    }
+                )
+
+            # Keep connection alive and wait for disconnect
+            while True:
+                try:
+                    # Receive messages (mainly for keepalive/ping)
+                    await websocket.receive_text()
+                except WebSocketDisconnect:
+                    break
+
+        except Exception:
+            pass  # Connection closed
+        finally:
+            # Unsubscribe and clean up
+            await generation_service.broadcaster.unsubscribe(job_id, websocket)

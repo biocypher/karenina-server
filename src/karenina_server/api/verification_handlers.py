@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 
@@ -25,26 +25,86 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
     async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Start verification job."""
         try:
-            from karenina.benchmark.models import FinishedTemplate, VerificationConfig
-            from karenina.utils.async_utils import AsyncConfig
+            import json
+
+            from karenina.schemas import CallableTrait, LLMRubricTrait, MetricRubricTrait, RegexTrait, Rubric
+            from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
 
             # Parse request
             config_data = request.get("config", {})
             question_ids = request.get("question_ids")
             finished_templates_data = request.get("finished_templates", [])
             run_name = request.get("run_name")  # Optional user-defined run name
-            async_config_data = request.get("async_config")  # Optional async configuration
+            storage_url = request.get("storage_url")  # Optional database URL for auto-save
+            benchmark_name = request.get("benchmark_name")  # Optional benchmark name for auto-save
+
+            # DEBUG: Log what backend receives
+            print("🔍 Backend: Received verification request")
+            print(f"  Rubric enabled in config? {config_data.get('rubric_enabled', False)}")
+
+            # Check if any templates have metric traits
+            templates_with_metric_traits = [
+                t
+                for t in finished_templates_data
+                if t.get("question_rubric") and t.get("question_rubric", {}).get("metric_traits")
+            ]
+            print(
+                f"  Templates with metric traits: {len(templates_with_metric_traits)} / {len(finished_templates_data)}"
+            )
+
+            if templates_with_metric_traits:
+                sample = templates_with_metric_traits[0]
+                print(f"  Sample metric trait: {json.dumps(sample['question_rubric']['metric_traits'][0], indent=2)}")
 
             # Create config
             config = VerificationConfig(**config_data)
 
-            # Create async config if provided, otherwise use environment defaults
-            async_config = None
-            if async_config_data:
-                async_config = AsyncConfig(**async_config_data)
-
             # Create finished templates (needed for rubric validation)
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
+
+            # Convert question_rubric dicts to Rubric objects
+            for template in finished_templates:
+                if template.question_rubric:
+                    rubric_dict = template.question_rubric
+
+                    # Parse LLM traits
+                    llm_traits = [LLMRubricTrait(**trait_data) for trait_data in rubric_dict.get("llm_traits", [])]
+
+                    # Parse regex traits
+                    regex_traits = [RegexTrait(**trait_data) for trait_data in rubric_dict.get("regex_traits", [])]
+
+                    # Parse callable traits
+                    callable_traits = [
+                        CallableTrait(**trait_data) for trait_data in rubric_dict.get("callable_traits", [])
+                    ]
+
+                    # Parse metric traits
+                    metric_traits = [
+                        MetricRubricTrait(**trait_data) for trait_data in rubric_dict.get("metric_traits", [])
+                    ]
+
+                    # Create Rubric object
+                    rubric = Rubric(
+                        llm_traits=llm_traits,
+                        regex_traits=regex_traits,
+                        callable_traits=callable_traits,
+                        metric_traits=metric_traits,
+                    )
+
+                    # Replace dict with Rubric object (direct attribute assignment)
+                    template.question_rubric = rubric
+
+            # DEBUG: Log parsed templates
+            templates_with_metric_traits_parsed = [
+                t
+                for t in finished_templates
+                if t.question_rubric and hasattr(t.question_rubric, "metric_traits") and t.question_rubric.metric_traits
+            ]
+            print(f"  Parsed templates with metric traits: {len(templates_with_metric_traits_parsed)}")
+            if templates_with_metric_traits_parsed:
+                sample = templates_with_metric_traits_parsed[0]
+                print(f"  Sample parsed metric trait name: {sample.question_rubric.metric_traits[0].name}")
+                print(f"  Sample evaluation_mode: {sample.question_rubric.metric_traits[0].evaluation_mode}")
 
             # Validate rubric availability if rubric evaluation is enabled
             if getattr(config, "rubric_enabled", False):
@@ -65,7 +125,8 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 config=config,
                 question_ids=question_ids,
                 run_name=run_name,
-                async_config=async_config,
+                storage_url=storage_url,  # Pass storage URL for auto-save
+                benchmark_name=benchmark_name,  # Pass benchmark name for auto-save
             )
 
             # Get the job to return the actual run name (auto-generated if not provided)
@@ -96,6 +157,57 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
+
+    @app.websocket("/ws/verification-progress/{job_id}")  # type: ignore[misc]
+    async def websocket_verification_progress(websocket: WebSocket, job_id: str) -> None:
+        """WebSocket endpoint for real-time verification progress updates."""
+        import asyncio
+
+        # Validate job exists
+        job = verification_service.jobs.get(job_id)
+        if not job:
+            await websocket.close(code=1008, reason="Job not found")
+            return
+
+        # Accept the connection
+        await websocket.accept()
+
+        # Set the event loop for the broadcaster if not already set
+        if verification_service.broadcaster._event_loop is None:
+            verification_service.broadcaster.set_event_loop(asyncio.get_running_loop())
+
+        # Subscribe to progress updates
+        await verification_service.broadcaster.subscribe(job_id, websocket)
+
+        try:
+            # Send current state immediately
+            progress = verification_service.get_progress(job_id)
+            if progress:
+                await websocket.send_json(
+                    {
+                        "type": "snapshot",
+                        "job_id": job_id,
+                        "status": progress["status"],
+                        "percentage": progress["percentage"],
+                        "processed": progress["processed_count"],
+                        "total": progress["total_questions"],
+                        "in_progress_questions": progress.get("in_progress_questions", []),
+                        "start_time": progress.get("start_time"),  # Unix timestamp for client-side live clock
+                        "duration_seconds": progress.get("duration_seconds"),
+                        "last_task_duration": progress.get("last_task_duration"),
+                        "current_question": progress.get("current_question", ""),
+                    }
+                )
+
+            # Keep connection alive and wait for client disconnect
+            while True:
+                try:
+                    await websocket.receive_text()
+                except WebSocketDisconnect:
+                    break
+        finally:
+            # Unsubscribe on disconnect
+            await verification_service.broadcaster.unsubscribe(job_id, websocket)
 
     @app.get("/api/verification-results/{job_id}")  # type: ignore[misc]
     async def get_verification_results(job_id: str) -> dict[str, Any]:

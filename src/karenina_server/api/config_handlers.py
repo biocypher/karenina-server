@@ -86,9 +86,10 @@ class ConfigStatus(BaseModel):
 class DefaultConfig(BaseModel):
     """Model for default LLM configuration."""
 
-    default_interface: str = "langchain"  # langchain or openrouter
+    default_interface: str = "langchain"  # langchain, openrouter, or openai_endpoint
     default_provider: str = "google_genai"  # for langchain
     default_model: str = "gemini-pro"  # default model
+    default_endpoint_base_url: str | None = None  # for openai_endpoint interface
 
 
 @router.get("/env-vars", response_model=dict[str, str])
@@ -185,10 +186,19 @@ async def get_default_config() -> DefaultConfig:
     """Get default LLM configuration settings."""
     try:
         defaults = defaults_service.get_defaults()
+        # These fields are guaranteed to exist and be strings due to fallback defaults
+        interface = defaults["default_interface"]
+        provider = defaults["default_provider"]
+        model = defaults["default_model"]
+        assert isinstance(interface, str)
+        assert isinstance(provider, str)
+        assert isinstance(model, str)
+
         return DefaultConfig(
-            default_interface=defaults["default_interface"],
-            default_provider=defaults["default_provider"],
-            default_model=defaults["default_model"],
+            default_interface=interface,
+            default_provider=provider,
+            default_model=model,
+            default_endpoint_base_url=defaults.get("default_endpoint_base_url"),
         )
     except Exception as e:
         logger.error(f"Error getting default configuration: {e}")
@@ -196,13 +206,14 @@ async def get_default_config() -> DefaultConfig:
 
 
 @router.put("/defaults")
-async def update_default_config(config: DefaultConfig) -> dict[str, str | dict[str, str]]:
+async def update_default_config(config: DefaultConfig) -> dict[str, str | dict[str, str | None]]:
     """Update default LLM configuration settings."""
     try:
         defaults_dict = {
             "default_interface": config.default_interface,
             "default_provider": config.default_provider,
             "default_model": config.default_model,
+            "default_endpoint_base_url": config.default_endpoint_base_url,
         }
 
         defaults_service.save_defaults(defaults_dict)

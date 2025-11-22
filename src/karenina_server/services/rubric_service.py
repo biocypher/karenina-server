@@ -3,7 +3,7 @@
 import threading
 from typing import Any
 
-from karenina.schemas.rubric_class import Rubric
+from karenina.schemas import Rubric
 
 
 class RubricService:
