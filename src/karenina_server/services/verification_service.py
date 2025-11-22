@@ -226,11 +226,12 @@ class VerificationService:
 
             # Run verification using batch runner
             # Note: batch runner handles task generation, execution, and auto-save
+            # Note: job.job_id is kept for server-side job tracking (WebSocket, API endpoints)
+            # but is not passed to the verification batch runner anymore
             results = run_verification_batch(
                 templates=templates,
                 config=job.config,
                 run_name=job.run_name,
-                job_id=job.job_id,
                 global_rubric=global_rubric,
                 async_enabled=None,  # Let batch_runner read from env
                 max_workers=None,  # Let batch_runner read from env
