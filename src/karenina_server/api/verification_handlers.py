@@ -470,14 +470,14 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                             "passed": None,
                             "score": None,
                             "abstained": False,
-                            "error": result.metadata.error is not None,
+                            "error": not result.metadata.completed_without_errors,
                         }
 
                         if result.template and hasattr(result.template, "verify_result"):
                             cell_data["passed"] = result.template.verify_result
 
-                        if result.template and hasattr(result.template, "abstained"):
-                            cell_data["abstained"] = result.template.abstained
+                        if result.template and hasattr(result.template, "abstention_detected"):
+                            cell_data["abstained"] = result.template.abstention_detected or False
 
                         if result.rubric and hasattr(result.rubric, "overall_score"):
                             cell_data["score"] = result.rubric.overall_score
