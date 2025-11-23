@@ -376,26 +376,35 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 raise HTTPException(status_code=400, detail="At least one model must be specified")
 
             # Convert dict to list of VerificationResult objects
-            all_results = []
+            # Keep two sets: one for heatmap (filtered by replicate), one for token stats (all replicates)
+            all_results_unfiltered = []  # For token statistics (all replicates)
+            all_results_filtered = []  # For heatmap (filtered by replicate)
+
             for result_id, result_data in results_dict.items():
                 try:
                     result = VerificationResult(**result_data)
                     # Filter by parsing model if specified
                     if parsing_model_filter is not None and result.metadata.parsing_model != parsing_model_filter:
                         continue
-                    # Filter by replicate if specified
-                    if replicate_filter is not None and result.metadata.answering_replicate != replicate_filter:
-                        continue
-                    all_results.append(result)
+
+                    # Add to unfiltered list (for token statistics)
+                    all_results_unfiltered.append(result)
+
+                    # Add to filtered list only if replicate matches (for heatmap)
+                    if replicate_filter is None or result.metadata.answering_replicate == replicate_filter:
+                        all_results_filtered.append(result)
+
                 except Exception as e:
                     print(f"Warning: Failed to parse result {result_id}: {e}")
                     continue
 
-            if not all_results:
+            if not all_results_unfiltered:
                 raise HTTPException(status_code=400, detail="No valid results found")
 
-            # Group results by model
-            model_results = {}
+            # Group results by model - separate for token stats (unfiltered) and heatmap (filtered)
+            model_results_for_tokens = {}  # Use all replicates for token statistics
+            model_results_for_heatmap = {}  # Use filtered replicates for heatmap
+
             for model_config in models_to_compare:
                 answering_model = model_config.get("answering_model")
                 mcp_config_str = str(model_config.get("mcp_config", "[]"))  # JSON string from frontend
@@ -414,39 +423,51 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 # Sort for consistent comparison
                 expected_mcp_servers_sorted = sorted(expected_mcp_servers)
 
-                # Filter results for this model
-                filtered_results = []
-                for r in all_results:
-                    if r.metadata.answering_model == answering_model:
-                        # Get MCP servers from result
-                        result_mcp_servers: list[str] = []
-                        if r.template and hasattr(r.template, "answering_mcp_servers"):
-                            result_mcp_servers = r.template.answering_mcp_servers or []
+                # Helper function to filter results for this model
+                def filter_for_model(
+                    results_list: list[VerificationResult],
+                    model: str = answering_model,
+                    expected_servers: list[str] = expected_mcp_servers_sorted,
+                ) -> list[VerificationResult]:
+                    filtered = []
+                    for r in results_list:
+                        if r.metadata.answering_model == model:
+                            # Get MCP servers from result
+                            result_mcp_servers: list[str] = []
+                            if r.template and hasattr(r.template, "answering_mcp_servers"):
+                                result_mcp_servers = r.template.answering_mcp_servers or []
 
-                        # Sort for comparison
-                        result_mcp_servers_sorted = sorted(result_mcp_servers)
+                            # Sort for comparison
+                            result_mcp_servers_sorted = sorted(result_mcp_servers)
 
-                        # Match if MCP servers are the same
-                        if result_mcp_servers_sorted == expected_mcp_servers_sorted:
-                            filtered_results.append(r)
+                            # Match if MCP servers are the same
+                            if result_mcp_servers_sorted == expected_servers:
+                                filtered.append(r)
+                    return filtered
 
-                if filtered_results:
-                    model_results[model_key] = filtered_results
+                # Filter both sets
+                results_for_tokens = filter_for_model(all_results_unfiltered)
+                results_for_heatmap = filter_for_model(all_results_filtered)
 
-            if not model_results:
+                if results_for_tokens:
+                    model_results_for_tokens[model_key] = results_for_tokens
+                if results_for_heatmap:
+                    model_results_for_heatmap[model_key] = results_for_heatmap
+
+            if not model_results_for_tokens:
                 raise HTTPException(status_code=400, detail="No results found for specified models")
 
-            # Compute per-model summaries
+            # Compute per-model summaries using unfiltered results (all replicates)
             model_summaries = {}
-            for model_key, results_list in model_results.items():
+            for model_key, results_list in model_results_for_tokens.items():
                 result_set = VerificationResultSet(results=results_list)
                 summary = result_set.get_summary()
                 model_summaries[model_key] = summary
 
-            # Generate heatmap data (question x model matrix)
+            # Generate heatmap data (question x model matrix) using filtered results
             # Collect all unique questions
             questions_map = {}  # question_id -> question_text
-            for result in all_results:
+            for result in all_results_filtered:
                 questions_map[result.metadata.question_id] = result.metadata.question_text
 
             heatmap_data = []
@@ -457,8 +478,8 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     "results_by_model": {},
                 }
 
-                # For each model, find the result for this question
-                for model_key, results_list in model_results.items():
+                # For each model, find the result for this question (from filtered results)
+                for model_key, results_list in model_results_for_heatmap.items():
                     matching_results = [r for r in results_list if r.metadata.question_id == question_id]
 
                     if matching_results:
@@ -494,7 +515,81 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
                 heatmap_data.append(question_row)
 
-            return {"model_summaries": model_summaries, "heatmap_data": heatmap_data}
+            # Generate per-question token data for bar charts
+            import numpy as np
+
+            question_token_data = []
+            # Use all_results_unfiltered to compute token stats across all replicates
+            for question_id, question_text in questions_map.items():
+                question_data = {
+                    "question_id": question_id,
+                    "question_text": question_text[:50] + ("..." if len(question_text) > 50 else ""),
+                    "models": [],
+                }
+
+                for model_key in model_results_for_tokens:
+                    # Get all results for this question and model (all replicates)
+                    matching_results = [
+                        r for r in model_results_for_tokens[model_key] if r.metadata.question_id == question_id
+                    ]
+
+                    if matching_results:
+                        # Collect token measurements across replicates
+                        input_tokens = []
+                        output_tokens = []
+
+                        for r in matching_results:
+                            if (
+                                r.template
+                                and hasattr(r.template, "usage_metadata")
+                                and r.template.usage_metadata
+                                and "total" in r.template.usage_metadata
+                            ):
+                                total_usage = r.template.usage_metadata["total"]
+                                inp = total_usage.get("input_tokens", 0)
+                                out = total_usage.get("output_tokens", 0)
+                                if inp > 0 or out > 0:
+                                    input_tokens.append(inp)
+                                    output_tokens.append(out)
+
+                        # Compute median and std
+                        if input_tokens:
+                            input_median = float(np.median(input_tokens))
+                            input_std = float(np.std(input_tokens))
+                        else:
+                            input_median = 0.0
+                            input_std = 0.0
+
+                        if output_tokens:
+                            output_median = float(np.median(output_tokens))
+                            output_std = float(np.std(output_tokens))
+                        else:
+                            output_median = 0.0
+                            output_std = 0.0
+
+                        # Extract model display name with MCP info
+                        parts = model_key.split("|")
+                        model_display_name = f"{parts[0]} (MCP: {parts[1]})" if len(parts) >= 2 else parts[0]
+
+                        question_data["models"].append(
+                            {
+                                "model_key": model_key,
+                                "model_display_name": model_display_name,
+                                "input_tokens_median": input_median,
+                                "input_tokens_std": input_std,
+                                "output_tokens_median": output_median,
+                                "output_tokens_std": output_std,
+                            }
+                        )
+
+                if question_data["models"]:
+                    question_token_data.append(question_data)
+
+            return {
+                "model_summaries": model_summaries,
+                "heatmap_data": heatmap_data,
+                "question_token_data": question_token_data,
+            }
 
         except HTTPException:
             raise
