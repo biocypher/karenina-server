@@ -299,3 +299,204 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}") from e
+
+    @app.post("/api/verification/summary")  # type: ignore[misc]
+    async def compute_summary_endpoint(request: dict[str, Any]) -> dict[str, Any]:
+        """
+        Compute summary statistics for verification results.
+
+        Request body:
+            - results: Dict of verification results (result_id -> VerificationResult)
+            - run_name: Optional run name to filter by (null for all results)
+
+        Returns:
+            Dictionary with summary statistics from VerificationResultSet.get_summary()
+        """
+        try:
+            from karenina.schemas.workflow import VerificationResult, VerificationResultSet
+
+            # Parse request
+            results_dict = request.get("results", {})
+            run_name_filter = request.get("run_name")
+
+            # Convert dict to list of VerificationResult objects
+            results_list = []
+            for result_id, result_data in results_dict.items():
+                try:
+                    result = VerificationResult(**result_data)
+                    # Filter by run_name if specified
+                    if run_name_filter is None or result.metadata.run_name == run_name_filter:
+                        results_list.append(result)
+                except Exception as e:
+                    print(f"Warning: Failed to parse result {result_id}: {e}")
+                    continue
+
+            if not results_list:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No valid results found{f' for run_name={run_name_filter}' if run_name_filter else ''}",
+                )
+
+            # Create VerificationResultSet and compute summary
+            result_set = VerificationResultSet(results=results_list)
+            summary: dict[str, Any] = result_set.get_summary()
+
+            return summary
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error computing summary: {e!s}") from e
+
+    @app.post("/api/verification/compare-models")  # type: ignore[misc]
+    async def compare_models_endpoint(request: dict[str, Any]) -> dict[str, Any]:
+        """
+        Compare multiple models with per-model summaries and heatmap data.
+
+        Request body:
+            - results: Dict of verification results (result_id -> VerificationResult)
+            - models: List of model configs to compare [{answering_model, mcp_config}]
+            - parsing_model: Parsing model to filter by (same judge for fair comparison)
+            - replicate: Optional replicate number to filter by (for per-replicate comparison)
+
+        Returns:
+            - model_summaries: Dict mapping model key to summary stats
+            - heatmap_data: List of questions with results by model
+        """
+        try:
+            from karenina.schemas.workflow import VerificationResult, VerificationResultSet
+
+            # Parse request
+            results_dict = request.get("results", {})
+            models_to_compare = request.get("models", [])
+            parsing_model_filter = request.get("parsing_model")
+            replicate_filter = request.get("replicate")
+
+            if not models_to_compare:
+                raise HTTPException(status_code=400, detail="At least one model must be specified")
+
+            # Convert dict to list of VerificationResult objects
+            all_results = []
+            for result_id, result_data in results_dict.items():
+                try:
+                    result = VerificationResult(**result_data)
+                    # Filter by parsing model if specified
+                    if parsing_model_filter is not None and result.metadata.parsing_model != parsing_model_filter:
+                        continue
+                    # Filter by replicate if specified
+                    if replicate_filter is not None and result.metadata.answering_replicate != replicate_filter:
+                        continue
+                    all_results.append(result)
+                except Exception as e:
+                    print(f"Warning: Failed to parse result {result_id}: {e}")
+                    continue
+
+            if not all_results:
+                raise HTTPException(status_code=400, detail="No valid results found")
+
+            # Group results by model
+            model_results = {}
+            for model_config in models_to_compare:
+                answering_model = model_config.get("answering_model")
+                mcp_config_str = str(model_config.get("mcp_config", "[]"))  # JSON string from frontend
+                model_key = f"{answering_model}|{mcp_config_str}"
+
+                # Parse expected MCP servers from config
+                import json
+
+                try:
+                    expected_mcp_servers = json.loads(mcp_config_str)
+                    if not isinstance(expected_mcp_servers, list):
+                        expected_mcp_servers = []
+                except Exception:
+                    expected_mcp_servers = []
+
+                # Sort for consistent comparison
+                expected_mcp_servers_sorted = sorted(expected_mcp_servers)
+
+                # Filter results for this model
+                filtered_results = []
+                for r in all_results:
+                    if r.metadata.answering_model == answering_model:
+                        # Get MCP servers from result
+                        result_mcp_servers: list[str] = []
+                        if r.template and hasattr(r.template, "answering_mcp_servers"):
+                            result_mcp_servers = r.template.answering_mcp_servers or []
+
+                        # Sort for comparison
+                        result_mcp_servers_sorted = sorted(result_mcp_servers)
+
+                        # Match if MCP servers are the same
+                        if result_mcp_servers_sorted == expected_mcp_servers_sorted:
+                            filtered_results.append(r)
+
+                if filtered_results:
+                    model_results[model_key] = filtered_results
+
+            if not model_results:
+                raise HTTPException(status_code=400, detail="No results found for specified models")
+
+            # Compute per-model summaries
+            model_summaries = {}
+            for model_key, results_list in model_results.items():
+                result_set = VerificationResultSet(results=results_list)
+                summary = result_set.get_summary()
+                model_summaries[model_key] = summary
+
+            # Generate heatmap data (question x model matrix)
+            # Collect all unique questions
+            questions_map = {}  # question_id -> question_text
+            for result in all_results:
+                questions_map[result.metadata.question_id] = result.metadata.question_text
+
+            heatmap_data = []
+            for question_id, question_text in questions_map.items():
+                question_row = {
+                    "question_id": question_id,
+                    "question_text": question_text,
+                    "results_by_model": {},
+                }
+
+                # For each model, find the result for this question
+                for model_key, results_list in model_results.items():
+                    matching_results = [r for r in results_list if r.metadata.question_id == question_id]
+
+                    if matching_results:
+                        # If multiple replicates, take the first one or aggregate
+                        result = matching_results[0]
+
+                        # Extract template pass/fail status and rubric score if available
+                        cell_data = {
+                            "passed": None,
+                            "score": None,
+                            "abstained": False,
+                            "error": result.metadata.error is not None,
+                        }
+
+                        if result.template and hasattr(result.template, "verify_result"):
+                            cell_data["passed"] = result.template.verify_result
+
+                        if result.template and hasattr(result.template, "abstained"):
+                            cell_data["abstained"] = result.template.abstained
+
+                        if result.rubric and hasattr(result.rubric, "overall_score"):
+                            cell_data["score"] = result.rubric.overall_score
+
+                        question_row["results_by_model"][model_key] = cell_data
+                    else:
+                        # No result for this question/model combo
+                        question_row["results_by_model"][model_key] = {
+                            "passed": None,
+                            "score": None,
+                            "abstained": False,
+                            "error": False,
+                        }
+
+                heatmap_data.append(question_row)
+
+            return {"model_summaries": model_summaries, "heatmap_data": heatmap_data}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error comparing models: {e!s}") from e
