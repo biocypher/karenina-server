@@ -470,7 +470,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                             "passed": None,
                             "score": None,
                             "abstained": False,
-                            "error": not result.metadata.completed_without_errors,
+                            "error": result.metadata.error is not None,
                         }
 
                         if result.template and hasattr(result.template, "verify_result"):
