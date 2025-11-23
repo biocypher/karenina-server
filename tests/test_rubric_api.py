@@ -1,7 +1,6 @@
 """Tests for rubric API endpoints."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,7 +20,7 @@ def client():
 def sample_rubric_data():
     """Sample rubric data for testing."""
     return {
-        "traits": [
+        "llm_traits": [
             {
                 "name": "accuracy",
                 "description": "Is the response factually accurate?",
@@ -40,25 +39,6 @@ def sample_rubric_data():
     }
 
 
-@pytest.fixture
-def sample_trait_generation_request():
-    """Sample trait generation request data."""
-    return {
-        "questions": {
-            "q1": {"question": "What is the capital of France?", "raw_answer": "Paris", "tags": []},
-            "q2": {"question": "Explain photosynthesis.", "raw_answer": "Process plants use to make food", "tags": []},
-        },
-        "system_prompt": "Generate evaluation criteria for these questions.",
-        "user_suggestions": ["clarity", "accuracy"],
-        "config": {
-            "model_provider": "google_genai",
-            "model_name": "gemini-2.0-flash",
-            "temperature": 0.1,
-            "interface": "langchain",
-        },
-    }
-
-
 class TestRubricCRUD:
     """Test CRUD operations for rubrics."""
 
@@ -72,7 +52,7 @@ class TestRubricCRUD:
 
     def test_create_rubric_invalid_trait_name(self, client, sample_rubric_data):
         """Test rubric creation with invalid trait name."""
-        sample_rubric_data["traits"][0]["name"] = ""
+        sample_rubric_data["llm_traits"][0]["name"] = ""
 
         response = client.post("/api/rubric", json=sample_rubric_data)
 
@@ -90,7 +70,7 @@ class TestRubricCRUD:
     def test_create_rubric_duplicate_trait_names(self, client, sample_rubric_data):
         """Test rubric creation with duplicate trait names."""
         # Make both traits have the same name
-        sample_rubric_data["traits"][1]["name"] = sample_rubric_data["traits"][0]["name"]
+        sample_rubric_data["llm_traits"][1]["name"] = sample_rubric_data["llm_traits"][0]["name"]
 
         response = client.post("/api/rubric", json=sample_rubric_data)
 
@@ -119,8 +99,8 @@ class TestRubricCRUD:
 
         rubric_data = get_response.json()
         assert rubric_data is not None
-        assert "traits" in rubric_data
-        assert len(rubric_data["traits"]) == 2
+        assert "llm_traits" in rubric_data
+        assert len(rubric_data["llm_traits"]) == 2
 
     def test_update_rubric(self, client, sample_rubric_data):
         """Test updating an existing rubric."""
@@ -129,7 +109,7 @@ class TestRubricCRUD:
 
         # Update with different data
         updated_data = {
-            "traits": [
+            "llm_traits": [
                 {
                     "name": "clarity",
                     "description": "Is the response clear?",
@@ -144,8 +124,8 @@ class TestRubricCRUD:
         # Verify the update
         get_response = client.get("/api/rubric")
         rubric_data = get_response.json()
-        assert len(rubric_data["traits"]) == 1
-        assert rubric_data["traits"][0]["name"] == "clarity"
+        assert len(rubric_data["llm_traits"]) == 1
+        assert rubric_data["llm_traits"][0]["name"] == "clarity"
 
     def test_delete_rubric(self, client, sample_rubric_data):
         """Test deleting a rubric."""
@@ -204,86 +184,3 @@ class TestRubricValidation:
 
         # Should get validation error
         assert response.status_code == 422
-
-
-class TestRubricIntegration:
-    """Test rubric integration scenarios."""
-
-    def test_rubric_system_prompt_endpoint(self, client):
-        """Test the default system prompt endpoint."""
-        response = client.get("/api/rubric/default-system-prompt")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "prompt" in data
-        assert isinstance(data["prompt"], str)
-        assert len(data["prompt"]) > 0
-        # Check for key content in the prompt
-        assert "rubric design" in data["prompt"].lower()
-        assert "qualitative aspects" in data["prompt"].lower()
-
-
-class TestRubricTraitGeneration:
-    """Test rubric trait generation endpoints."""
-
-    @patch("karenina_server.api.rubric_handlers.GenerationService")
-    def test_generate_traits_success(self, mock_service_class, client, sample_trait_generation_request):
-        """Test successful trait generation."""
-        # Mock the generation service
-        mock_service = Mock()
-        mock_service_class.return_value = mock_service
-
-        # Mock successful generation response
-        mock_service.generate_rubric_traits.return_value = """
-        [
-            {
-                "name": "accuracy",
-                "description": "Is the response factually accurate?",
-                "kind": "boolean"
-            },
-            {
-                "name": "completeness",
-                "description": "How complete is the response?",
-                "kind": "score",
-                "min_score": 1,
-                "max_score": 5
-            }
-        ]
-        """
-
-        response = client.post("/api/generate-rubric-traits", json=sample_trait_generation_request)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "traits" in data
-        assert len(data["traits"]) == 2
-        assert data["traits"][0]["name"] == "accuracy"
-        assert data["traits"][1]["name"] == "completeness"
-
-    def test_generate_traits_no_questions(self, client, sample_trait_generation_request):
-        """Test trait generation with no questions."""
-        sample_trait_generation_request["questions"] = {}
-
-        response = client.post("/api/generate-rubric-traits", json=sample_trait_generation_request)
-
-        assert response.status_code == 400
-        assert "No questions provided" in response.json()["detail"]
-
-    @patch("karenina_server.api.rubric_handlers.GenerationService")
-    def test_generate_traits_fallback_parsing(self, mock_service_class, client, sample_trait_generation_request):
-        """Test trait generation with response that triggers fallback parsing."""
-        # Mock the generation service
-        mock_service = Mock()
-        mock_service_class.return_value = mock_service
-
-        # Mock response that will trigger fallback traits
-        mock_service.generate_rubric_traits.return_value = "This is not valid JSON"
-
-        response = client.post("/api/generate-rubric-traits", json=sample_trait_generation_request)
-
-        assert response.status_code == 200
-        data = response.json()
-        # Should get fallback traits when parsing fails
-        assert "traits" in data
-        assert len(data["traits"]) == 2
-        assert data["traits"][0]["name"] == "clarity"

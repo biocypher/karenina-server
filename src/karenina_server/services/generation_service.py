@@ -539,49 +539,6 @@ class GenerationService:
             "in_progress_questions": job.in_progress_questions,
         }
 
-    def generate_rubric_traits(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        model_provider: str = "google_genai",
-        model_name: str = "gemini-2.0-flash",
-        temperature: float = 0.1,
-        interface: str = "langchain",
-    ) -> str:
-        """
-        Generate rubric traits using LLM.
-
-        This is a simple synchronous method for trait generation.
-        For now, we don't use the job queue system as trait generation is typically fast.
-        """
-        # Generate response using appropriate interface
-        if interface == "openrouter":
-            # Use init_chat_model_unified for OpenRouter
-            from karenina.infrastructure.llm.interface import call_model, init_chat_model_unified
-
-            chat_model = init_chat_model_unified(
-                provider="",  # Empty provider for OpenRouter
-                model=model_name,
-                temperature=temperature,
-                interface=interface,
-            )
-            # Create messages for chat model
-            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
-            response = chat_model.invoke(messages)
-            return str(response.content)
-        else:
-            # Use call_model for langchain interface
-            from karenina.infrastructure.llm.interface import call_model
-
-            response = call_model(
-                model=model_name,
-                provider=model_provider,
-                message=user_prompt,
-                system_message=system_prompt,
-                temperature=temperature,
-            )
-            return str(response.message)
-
 
 # Global service instance
 generation_service = GenerationService()
