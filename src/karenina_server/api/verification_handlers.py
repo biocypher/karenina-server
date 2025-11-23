@@ -357,6 +357,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             - results: Dict of verification results (result_id -> VerificationResult)
             - models: List of model configs to compare [{answering_model, mcp_config}]
             - parsing_model: Parsing model to filter by (same judge for fair comparison)
+            - replicate: Optional replicate number to filter by (for per-replicate comparison)
 
         Returns:
             - model_summaries: Dict mapping model key to summary stats
@@ -369,6 +370,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             results_dict = request.get("results", {})
             models_to_compare = request.get("models", [])
             parsing_model_filter = request.get("parsing_model")
+            replicate_filter = request.get("replicate")
 
             if not models_to_compare:
                 raise HTTPException(status_code=400, detail="At least one model must be specified")
@@ -379,8 +381,12 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 try:
                     result = VerificationResult(**result_data)
                     # Filter by parsing model if specified
-                    if parsing_model_filter is None or result.metadata.parsing_model == parsing_model_filter:
-                        all_results.append(result)
+                    if parsing_model_filter is not None and result.metadata.parsing_model != parsing_model_filter:
+                        continue
+                    # Filter by replicate if specified
+                    if replicate_filter is not None and result.metadata.answering_replicate != replicate_filter:
+                        continue
+                    all_results.append(result)
                 except Exception as e:
                     print(f"Warning: Failed to parse result {result_id}: {e}")
                     continue
