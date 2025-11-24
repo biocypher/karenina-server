@@ -467,12 +467,37 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     matching_results = [r for r in results_list if r.metadata.question_id == question_id]
 
                     if matching_results:
-                        # Sort by replicate number to ensure consistent ordering
-                        matching_results.sort(key=lambda r: r.metadata.answering_replicate or 0)
+                        # Deduplicate by replicate number (handle retries)
+                        # Group by replicate number and keep only one result per replicate
+                        from collections import defaultdict
+
+                        replicate_groups: dict[int, list[Any]] = defaultdict(list)
+                        for r in matching_results:
+                            replicate_num = r.metadata.answering_replicate or 0
+                            replicate_groups[replicate_num].append(r)
+
+                        # For each replicate group, select the result to display
+                        deduplicated_results = []
+                        for replicate_num in sorted(replicate_groups.keys()):
+                            candidates = replicate_groups[replicate_num]
+
+                            # Priority: Show errors first (so users can see failures),
+                            # otherwise show the most recent successful result
+                            # This ensures errors are visible even if there were subsequent successful retries
+                            failed_results = [r for r in candidates if not r.metadata.completed_without_errors]
+
+                            if failed_results:
+                                # If there are any failed attempts, show the most recent failure
+                                selected = max(failed_results, key=lambda r: r.metadata.timestamp or "")
+                            else:
+                                # Otherwise, show the most recent successful attempt
+                                selected = max(candidates, key=lambda r: r.metadata.timestamp or "")
+
+                            deduplicated_results.append(selected)
 
                         # Create array of cell data for all replicates
                         replicates_data = []
-                        for result in matching_results:
+                        for result in deduplicated_results:
                             # Extract template pass/fail status and rubric score if available
                             cell_data = {
                                 "replicate": result.metadata.answering_replicate,
