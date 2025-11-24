@@ -268,7 +268,7 @@ async def delete_preset(preset_id: str) -> dict[str, str]:
 async def get_presets_file_status() -> dict[str, Any]:
     """Get status information about the presets file."""
     try:
-        return preset_service.get_file_status()
+        return preset_service.get_directory_status()
     except Exception as e:
         logger.error(f"Error getting presets file status: {e}")
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
