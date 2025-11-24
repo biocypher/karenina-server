@@ -486,6 +486,34 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                             if result.rubric and hasattr(result.rubric, "overall_score"):
                                 cell_data["score"] = result.rubric.overall_score
 
+                            # Extract execution metadata for tooltip
+                            # Execution type: "Agent" if agent_metrics present, "Standard" otherwise
+                            has_agent = (
+                                result.template
+                                and hasattr(result.template, "agent_metrics")
+                                and result.template.agent_metrics is not None
+                            )
+                            cell_data["execution_type"] = "Agent" if has_agent else "Standard"
+
+                            # Token usage from usage_metadata.total
+                            if (
+                                result.template
+                                and hasattr(result.template, "usage_metadata")
+                                and result.template.usage_metadata
+                            ):
+                                total_usage = result.template.usage_metadata.get("total", {})
+                                cell_data["input_tokens"] = total_usage.get("input_tokens", 0)
+                                cell_data["output_tokens"] = total_usage.get("output_tokens", 0)
+                            else:
+                                cell_data["input_tokens"] = 0
+                                cell_data["output_tokens"] = 0
+
+                            # Iterations (only if agent was used)
+                            if has_agent:
+                                cell_data["iterations"] = result.template.agent_metrics.get("iterations", 0)
+                            else:
+                                cell_data["iterations"] = 0
+
                             replicates_data.append(cell_data)
 
                         question_row["results_by_model"][model_key] = {"replicates": replicates_data}
