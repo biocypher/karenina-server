@@ -1,11 +1,10 @@
 """MCP (Model Context Protocol) validation API handlers."""
 
-import json
 import logging
-import os
 from typing import Any
 
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 try:
     import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
@@ -17,56 +16,41 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+class MCPPresetSaveRequest(BaseModel):
+    """Request model for saving MCP presets."""
+
+    name: str
+    url: str
+    tools: list[str] | None = None
+
+
+class MCPPresetDeleteRequest(BaseModel):
+    """Request model for deleting MCP presets."""
+
+    name: str
+
+
 def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationResponse: Any) -> None:
     """Register MCP validation-related routes."""
 
     @app.get("/api/get-mcp-preset-configs")  # type: ignore[misc]
     async def get_mcp_preset_configs() -> dict[str, Any]:
-        """Get MCP preset configurations from MCP_CONFIG environment variable."""
+        """Get MCP preset configurations from mcp_presets directory.
+
+        The directory location can be configured via MCP_PRESETS_DIR environment variable.
+        Defaults to mcp_presets/ in the current working directory.
+        """
         try:
-            mcp_config_str = os.environ.get("MCP_CONFIG")
-            if not mcp_config_str:
-                return {"presets": {}}
+            from ..services.mcp_preset_service import MCPPresetService
 
-            # Parse the JSON string
-            try:
-                mcp_config = json.loads(mcp_config_str)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Invalid JSON in MCP_CONFIG environment variable: {e}")
-                return {"presets": {}, "error": "Invalid JSON in MCP_CONFIG"}
+            service = MCPPresetService()
+            all_presets = service.list_all_presets()
 
-            # Validate the configuration structure
-            if not isinstance(mcp_config, dict):
-                logger.warning("MCP_CONFIG must be a dictionary")
-                return {"presets": {}, "error": "MCP_CONFIG must be a dictionary"}
-
-            validated_presets = {}
-            for server_name, config in mcp_config.items():
-                if not isinstance(config, dict):
-                    logger.warning(f"Skipping invalid config for server '{server_name}': not a dictionary")
-                    continue
-
-                if "url" not in config:
-                    logger.warning(f"Skipping server '{server_name}': missing required 'url' field")
-                    continue
-
-                # Build validated configuration
-                preset_config = {"name": server_name, "url": config["url"]}
-
-                # Add tools if specified
-                if "tools" in config:
-                    if isinstance(config["tools"], list):
-                        preset_config["tools"] = config["tools"]
-                    else:
-                        logger.warning(f"Invalid 'tools' for server '{server_name}': must be a list")
-
-                validated_presets[server_name] = preset_config
-
-            return {"presets": validated_presets}
+            return {"presets": all_presets}
 
         except Exception as e:
-            logger.error(f"Error processing MCP preset configurations: {e}")
-            return {"presets": {}, "error": f"Failed to process MCP_CONFIG: {str(e)}"}
+            logger.error(f"Error getting MCP preset configurations: {e}")
+            return {"presets": {}, "error": f"Failed to get MCP presets: {str(e)}"}
 
     @app.post("/api/validate-mcp-server", response_model=MCPValidationResponse)  # type: ignore[misc]
     async def validate_mcp_server_endpoint(request: MCPValidationRequest) -> MCPValidationResponse:
@@ -97,3 +81,45 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
 
         except Exception as e:
             return MCPValidationResponse(success=False, tools=None, error=f"Failed to validate MCP server: {e!s}")
+
+    @app.post("/api/save-mcp-preset")  # type: ignore[misc]
+    async def save_mcp_preset(request: MCPPresetSaveRequest) -> dict[str, Any]:
+        """Save a new or update existing MCP preset."""
+        try:
+            from ..services.mcp_preset_service import MCPPresetService
+
+            service = MCPPresetService()
+            preset = service.save_preset(
+                name=request.name,
+                url=request.url,
+                tools=request.tools,
+            )
+
+            logger.info(f"Saved MCP preset '{request.name}'")
+            return {"success": True, "preset": preset}
+
+        except ValueError as e:
+            logger.warning(f"Validation error saving MCP preset: {e}")
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:
+            logger.error(f"Error saving MCP preset: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save MCP preset: {str(e)}") from e
+
+    @app.post("/api/delete-mcp-preset")  # type: ignore[misc]
+    async def delete_mcp_preset(request: MCPPresetDeleteRequest) -> dict[str, Any]:
+        """Delete a user-saved MCP preset."""
+        try:
+            from ..services.mcp_preset_service import MCPPresetService
+
+            service = MCPPresetService()
+            service.delete_preset(name=request.name)
+
+            logger.info(f"Deleted MCP preset '{request.name}'")
+            return {"success": True}
+
+        except ValueError as e:
+            logger.warning(f"Error deleting MCP preset: {e}")
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except Exception as e:
+            logger.error(f"Error deleting MCP preset: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete MCP preset: {str(e)}") from e
