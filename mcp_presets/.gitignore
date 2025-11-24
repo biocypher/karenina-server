@@ -1,0 +1,5 @@
+# Ignore all user-created preset files
+*.json
+
+# Keep example files in version control
+!example_*.json
