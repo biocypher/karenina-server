@@ -444,16 +444,21 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 model_summaries[model_key] = summary
 
             # Generate heatmap data (question x model matrix) with all replicates
-            # Collect all unique questions
-            questions_map = {}  # question_id -> question_text
+            # Collect all unique questions with their keywords
+            questions_map = {}  # question_id -> (question_text, keywords)
             for result in all_results:
-                questions_map[result.metadata.question_id] = result.metadata.question_text
+                if result.metadata.question_id not in questions_map:
+                    questions_map[result.metadata.question_id] = (
+                        result.metadata.question_text,
+                        result.metadata.keywords or [],
+                    )
 
             heatmap_data = []
-            for question_id, question_text in questions_map.items():
+            for question_id, (question_text, keywords) in questions_map.items():
                 question_row = {
                     "question_id": question_id,
                     "question_text": question_text,
+                    "keywords": keywords,
                     "results_by_model": {},
                 }
 
@@ -528,7 +533,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
             question_token_data = []
             # Compute token stats across all replicates
-            for question_id, question_text in questions_map.items():
+            for question_id, (question_text, _keywords) in questions_map.items():
                 question_data = {
                     "question_id": question_id,
                     "question_text": question_text[:50] + ("..." if len(question_text) > 50 else ""),
