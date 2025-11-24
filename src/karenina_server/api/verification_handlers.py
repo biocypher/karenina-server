@@ -370,15 +370,12 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             results_dict = request.get("results", {})
             models_to_compare = request.get("models", [])
             parsing_model_filter = request.get("parsing_model")
-            replicate_filter = request.get("replicate")
 
             if not models_to_compare:
                 raise HTTPException(status_code=400, detail="At least one model must be specified")
 
             # Convert dict to list of VerificationResult objects
-            # Keep two sets: one for heatmap (filtered by replicate), one for token stats (all replicates)
-            all_results_unfiltered = []  # For token statistics (all replicates)
-            all_results_filtered = []  # For heatmap (filtered by replicate)
+            all_results = []
 
             for result_id, result_data in results_dict.items():
                 try:
@@ -387,23 +384,17 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     if parsing_model_filter is not None and result.metadata.parsing_model != parsing_model_filter:
                         continue
 
-                    # Add to unfiltered list (for token statistics)
-                    all_results_unfiltered.append(result)
-
-                    # Add to filtered list only if replicate matches (for heatmap)
-                    if replicate_filter is None or result.metadata.answering_replicate == replicate_filter:
-                        all_results_filtered.append(result)
+                    all_results.append(result)
 
                 except Exception as e:
                     print(f"Warning: Failed to parse result {result_id}: {e}")
                     continue
 
-            if not all_results_unfiltered:
+            if not all_results:
                 raise HTTPException(status_code=400, detail="No valid results found")
 
-            # Group results by model - separate for token stats (unfiltered) and heatmap (filtered)
-            model_results_for_tokens = {}  # Use all replicates for token statistics
-            model_results_for_heatmap = {}  # Use filtered replicates for heatmap
+            # Group results by model
+            model_results = {}
 
             for model_config in models_to_compare:
                 answering_model = model_config.get("answering_model")
@@ -423,51 +414,39 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 # Sort for consistent comparison
                 expected_mcp_servers_sorted = sorted(expected_mcp_servers)
 
-                # Helper function to filter results for this model
-                def filter_for_model(
-                    results_list: list[VerificationResult],
-                    model: str = answering_model,
-                    expected_servers: list[str] = expected_mcp_servers_sorted,
-                ) -> list[VerificationResult]:
-                    filtered = []
-                    for r in results_list:
-                        if r.metadata.answering_model == model:
-                            # Get MCP servers from result
-                            result_mcp_servers: list[str] = []
-                            if r.template and hasattr(r.template, "answering_mcp_servers"):
-                                result_mcp_servers = r.template.answering_mcp_servers or []
+                # Filter results for this model
+                filtered = []
+                for r in all_results:
+                    if r.metadata.answering_model == answering_model:
+                        # Get MCP servers from result
+                        result_mcp_servers: list[str] = []
+                        if r.template and hasattr(r.template, "answering_mcp_servers"):
+                            result_mcp_servers = r.template.answering_mcp_servers or []
 
-                            # Sort for comparison
-                            result_mcp_servers_sorted = sorted(result_mcp_servers)
+                        # Sort for comparison
+                        result_mcp_servers_sorted = sorted(result_mcp_servers)
 
-                            # Match if MCP servers are the same
-                            if result_mcp_servers_sorted == expected_servers:
-                                filtered.append(r)
-                    return filtered
+                        # Match if MCP servers are the same
+                        if result_mcp_servers_sorted == expected_mcp_servers_sorted:
+                            filtered.append(r)
 
-                # Filter both sets
-                results_for_tokens = filter_for_model(all_results_unfiltered)
-                results_for_heatmap = filter_for_model(all_results_filtered)
+                if filtered:
+                    model_results[model_key] = filtered
 
-                if results_for_tokens:
-                    model_results_for_tokens[model_key] = results_for_tokens
-                if results_for_heatmap:
-                    model_results_for_heatmap[model_key] = results_for_heatmap
-
-            if not model_results_for_tokens:
+            if not model_results:
                 raise HTTPException(status_code=400, detail="No results found for specified models")
 
-            # Compute per-model summaries using unfiltered results (all replicates)
+            # Compute per-model summaries using all replicates
             model_summaries = {}
-            for model_key, results_list in model_results_for_tokens.items():
+            for model_key, results_list in model_results.items():
                 result_set = VerificationResultSet(results=results_list)
                 summary = result_set.get_summary()
                 model_summaries[model_key] = summary
 
-            # Generate heatmap data (question x model matrix) using filtered results
+            # Generate heatmap data (question x model matrix) with all replicates
             # Collect all unique questions
             questions_map = {}  # question_id -> question_text
-            for result in all_results_filtered:
+            for result in all_results:
                 questions_map[result.metadata.question_id] = result.metadata.question_text
 
             heatmap_data = []
@@ -478,40 +457,41 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     "results_by_model": {},
                 }
 
-                # For each model, find the result for this question (from filtered results)
-                for model_key, results_list in model_results_for_heatmap.items():
+                # For each model, find all replicates for this question
+                for model_key, results_list in model_results.items():
                     matching_results = [r for r in results_list if r.metadata.question_id == question_id]
 
                     if matching_results:
-                        # If multiple replicates, take the first one or aggregate
-                        result = matching_results[0]
+                        # Sort by replicate number to ensure consistent ordering
+                        matching_results.sort(key=lambda r: r.metadata.answering_replicate or 0)
 
-                        # Extract template pass/fail status and rubric score if available
-                        cell_data = {
-                            "passed": None,
-                            "score": None,
-                            "abstained": False,
-                            "error": result.metadata.error is not None,
-                        }
+                        # Create array of cell data for all replicates
+                        replicates_data = []
+                        for result in matching_results:
+                            # Extract template pass/fail status and rubric score if available
+                            cell_data = {
+                                "replicate": result.metadata.answering_replicate,
+                                "passed": None,
+                                "score": None,
+                                "abstained": False,
+                                "error": result.metadata.error is not None,
+                            }
 
-                        if result.template and hasattr(result.template, "verify_result"):
-                            cell_data["passed"] = result.template.verify_result
+                            if result.template and hasattr(result.template, "verify_result"):
+                                cell_data["passed"] = result.template.verify_result
 
-                        if result.template and hasattr(result.template, "abstention_detected"):
-                            cell_data["abstained"] = result.template.abstention_detected or False
+                            if result.template and hasattr(result.template, "abstention_detected"):
+                                cell_data["abstained"] = result.template.abstention_detected or False
 
-                        if result.rubric and hasattr(result.rubric, "overall_score"):
-                            cell_data["score"] = result.rubric.overall_score
+                            if result.rubric and hasattr(result.rubric, "overall_score"):
+                                cell_data["score"] = result.rubric.overall_score
 
-                        question_row["results_by_model"][model_key] = cell_data
+                            replicates_data.append(cell_data)
+
+                        question_row["results_by_model"][model_key] = {"replicates": replicates_data}
                     else:
                         # No result for this question/model combo
-                        question_row["results_by_model"][model_key] = {
-                            "passed": None,
-                            "score": None,
-                            "abstained": False,
-                            "error": False,
-                        }
+                        question_row["results_by_model"][model_key] = {"replicates": []}
 
                 heatmap_data.append(question_row)
 
@@ -519,7 +499,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             import numpy as np
 
             question_token_data = []
-            # Use all_results_unfiltered to compute token stats across all replicates
+            # Compute token stats across all replicates
             for question_id, question_text in questions_map.items():
                 question_data = {
                     "question_id": question_id,
@@ -527,11 +507,9 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     "models": [],
                 }
 
-                for model_key in model_results_for_tokens:
+                for model_key in model_results:
                     # Get all results for this question and model (all replicates)
-                    matching_results = [
-                        r for r in model_results_for_tokens[model_key] if r.metadata.question_id == question_id
-                    ]
+                    matching_results = [r for r in model_results[model_key] if r.metadata.question_id == question_id]
 
                     if matching_results:
                         # Collect token measurements across replicates
