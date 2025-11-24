@@ -507,8 +507,15 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                                 and result.template.usage_metadata
                             ):
                                 total_usage = result.template.usage_metadata.get("total", {})
-                                cell_data["input_tokens"] = total_usage.get("input_tokens", 0)
-                                cell_data["output_tokens"] = total_usage.get("output_tokens", 0)
+                                inp = total_usage.get("input_tokens", 0)
+                                out = total_usage.get("output_tokens", 0)
+                                # Handle None values
+                                cell_data["input_tokens"] = (
+                                    int(inp) if inp is not None and isinstance(inp, int | float) else 0
+                                )
+                                cell_data["output_tokens"] = (
+                                    int(out) if out is not None and isinstance(out, int | float) else 0
+                                )
                             else:
                                 cell_data["input_tokens"] = 0
                                 cell_data["output_tokens"] = 0
@@ -559,8 +566,10 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                                 total_usage = r.template.usage_metadata["total"]
                                 inp = total_usage.get("input_tokens", 0)
                                 out = total_usage.get("output_tokens", 0)
-                                if inp > 0 or out > 0:
+                                # Only append non-None values to avoid NaN in statistics
+                                if inp is not None and isinstance(inp, int | float) and inp > 0:
                                     input_tokens.append(inp)
+                                if out is not None and isinstance(out, int | float) and out > 0:
                                     output_tokens.append(out)
 
                         # Compute median and std
