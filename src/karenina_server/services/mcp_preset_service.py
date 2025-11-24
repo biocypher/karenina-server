@@ -14,7 +14,7 @@ class MCPPresetService:
 
     Presets are stored in the mcp_presets/ directory. The directory location
     can be configured via the MCP_PRESETS_DIR environment variable, which
-    should point to the parent directory (mcp_presets/ will be created inside).
+    should point to the full path of the mcp_presets directory.
 
     Defaults to mcp_presets/ in the current working directory if not specified.
     """
@@ -26,9 +26,10 @@ class MCPPresetService:
             presets_dir_path: Path to MCP presets directory. If None, uses default location.
         """
         if presets_dir_path is None:
-            # Check environment variable first, otherwise use current working directory
+            # Check environment variable first (should be the full path to mcp_presets dir)
+            # Defaults to mcp_presets/ in current working directory
             env_presets_dir = os.getenv("MCP_PRESETS_DIR")
-            presets_dir_path = Path(env_presets_dir) / "mcp_presets" if env_presets_dir else Path.cwd() / "mcp_presets"
+            presets_dir_path = Path(env_presets_dir) if env_presets_dir else Path.cwd() / "mcp_presets"
 
         # Validate and canonicalize path
         self.presets_dir_path = self._validate_dir_path(presets_dir_path)
