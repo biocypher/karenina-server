@@ -551,6 +551,21 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                             else:
                                 cell_data["iterations"] = 0
 
+                            # Extract rubric trait scores for badge overlays
+                            if result.rubric:
+                                rubric_scores: dict[str, dict[str, bool | int | float]] = {}
+                                if hasattr(result.rubric, "llm_trait_scores") and result.rubric.llm_trait_scores:
+                                    rubric_scores["llm"] = result.rubric.llm_trait_scores
+                                if hasattr(result.rubric, "regex_trait_scores") and result.rubric.regex_trait_scores:
+                                    rubric_scores["regex"] = result.rubric.regex_trait_scores
+                                if (
+                                    hasattr(result.rubric, "callable_trait_scores")
+                                    and result.rubric.callable_trait_scores
+                                ):
+                                    rubric_scores["callable"] = result.rubric.callable_trait_scores
+                                if rubric_scores:
+                                    cell_data["rubric_scores"] = rubric_scores
+
                             replicates_data.append(cell_data)
 
                         question_row["results_by_model"][model_key] = {"replicates": replicates_data}
