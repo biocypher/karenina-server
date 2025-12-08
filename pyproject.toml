@@ -61,6 +61,21 @@ Documentation = "https://karenina.readthedocs.io"
 [tool.hatch.build.targets.wheel]
 packages = ["src/karenina_server"]
 
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "build_hooks.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/build_hooks.py",
+]
+
+# Include non-Python files (webapp assets)
+[tool.hatch.build]
+artifacts = [
+    "src/karenina_server/webapp/**/*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = [
