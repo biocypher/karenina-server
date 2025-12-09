@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "karenina-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "FastAPI server for the Karenina benchmarking system"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -60,6 +60,21 @@ Documentation = "https://karenina.readthedocs.io"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/karenina_server"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "build_hooks.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/build_hooks.py",
+]
+
+# Include non-Python files (webapp assets)
+[tool.hatch.build]
+artifacts = [
+    "src/karenina_server/webapp/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
