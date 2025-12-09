@@ -1,9 +1,0 @@
-{
-  "name": "biocontext",
-  "url": "http://localhost:8100/mcp",
-  "tools": [
-    "search_pubmed",
-    "get_paper_details",
-    "analyze_protein_structure"
-  ]
-}

@@ -28,9 +28,9 @@ class BenchmarkPresetService:
             if env_presets_dir:
                 presets_dir_path = Path(env_presets_dir)
             else:
-                # Default to benchmark_presets/ directory in project root
+                # Default to presets/ directory in project root
                 project_root = Path(__file__).parent.parent.parent.parent.parent
-                presets_dir_path = project_root / "benchmark_presets"
+                presets_dir_path = project_root / "presets"
 
         # Validate and canonicalize path to prevent traversal attacks
         self.presets_dir_path = self._validate_dir_path(presets_dir_path)
