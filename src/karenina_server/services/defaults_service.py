@@ -32,8 +32,8 @@ class DefaultsService:
         # Hardcoded fallback defaults
         self.fallback_defaults: dict[str, str | None] = {
             "default_interface": "langchain",
-            "default_provider": "google_genai",
-            "default_model": "gemini-pro",
+            "default_provider": "anthropic",
+            "default_model": "claude-haiku-4-5",
             "default_endpoint_base_url": None,
         }
 

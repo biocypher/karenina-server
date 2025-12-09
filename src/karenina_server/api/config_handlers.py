@@ -87,8 +87,8 @@ class DefaultConfig(BaseModel):
     """Model for default LLM configuration."""
 
     default_interface: str = "langchain"  # langchain, openrouter, or openai_endpoint
-    default_provider: str = "google_genai"  # for langchain
-    default_model: str = "gemini-pro"  # default model
+    default_provider: str = "anthropic"  # for langchain
+    default_model: str = "claude-haiku-4-5"  # default model
     default_endpoint_base_url: str | None = None  # for openai_endpoint interface
 
 
