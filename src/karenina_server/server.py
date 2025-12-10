@@ -350,6 +350,10 @@ def build_webapp(webapp_dir: Path, force_rebuild: bool = False) -> Path:
                 if dist_mtime > src_mtime:
                     print("✓ Webapp build is up to date")
                     return dist_dir
+            else:
+                # No src directory means this is a pre-built package installation
+                print("✓ Using pre-built webapp assets")
+                return dist_dir
         except (ValueError, StopIteration):
             pass  # Fall through to rebuild
 

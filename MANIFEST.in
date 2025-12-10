@@ -1,0 +1,9 @@
+# Include the build hook for building from source
+include build_hooks.py
+
+# Include pre-built webapp assets for sdist
+recursive-include src/karenina_server/webapp/dist *
+
+# Include documentation
+include README.md
+include LICENSE

@@ -438,11 +438,11 @@ class GenerationService:
             else:
                 # Old config format (dict)
                 config_dict = config
-                model_name = config_dict.get("model_name", config_dict.get("model", "gemini-2.0-flash"))
+                model_name = config_dict.get("model_name", config_dict.get("model", "claude-haiku-4-5"))
                 interface = config_dict.get("interface", "langchain")
                 # Only set default provider for langchain interface
                 if interface == "langchain":
-                    model_provider = config_dict.get("model_provider", "google_genai")
+                    model_provider = config_dict.get("model_provider", "anthropic")
                 else:
                     model_provider = config_dict.get("model_provider", "")
                 temperature = config_dict.get("temperature", 0.1)
