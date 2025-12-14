@@ -25,6 +25,51 @@ except ImportError:
     STORAGE_AVAILABLE = False
 
 
+def _serialize_rubric_to_dict(rubric: Any) -> dict[str, Any] | None:
+    """
+    Serialize a Rubric object or rubric dict to API-compatible dict format.
+
+    This function handles both Rubric objects and dicts with trait lists,
+    converting Pydantic models to dicts using model_dump().
+
+    Args:
+        rubric: A Rubric object, a dict with trait lists, or None
+
+    Returns:
+        Dict with traits serialized (llm_traits, regex_traits, callable_traits, metric_traits),
+        or None if rubric is None/empty
+    """
+    if rubric is None:
+        return None
+
+    # Handle Rubric object (has llm_traits, regex_traits, etc. as lists of Pydantic models)
+    if hasattr(rubric, "llm_traits"):
+        llm_traits = [t.model_dump() for t in (rubric.llm_traits or [])]
+        regex_traits = [t.model_dump() for t in (rubric.regex_traits or [])]
+        callable_traits = [t.model_dump() for t in (rubric.callable_traits or [])]
+        metric_traits = [t.model_dump() for t in (rubric.metric_traits or [])]
+    # Handle dict with trait object lists (from extract_questions_from_benchmark)
+    elif isinstance(rubric, dict):
+        llm_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("llm_traits", [])]
+        regex_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("regex_traits", [])]
+        callable_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("callable_traits", [])]
+        metric_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("metric_traits", [])]
+    else:
+        return None
+
+    # Return None if no traits at all
+    if not (llm_traits or regex_traits or callable_traits or metric_traits):
+        return None
+
+    # Return with consistent key names matching Rubric schema
+    return {
+        "llm_traits": llm_traits,
+        "regex_traits": regex_traits,
+        "callable_traits": callable_traits,
+        "metric_traits": metric_traits,
+    }
+
+
 def _extract_creator_name(creator: Any) -> str:
     """
     Extract creator name from either a string or Person dict.
@@ -176,7 +221,7 @@ def register_database_routes(
             questions_data = {}
             for q_data in benchmark.get_all_questions():
                 question_id = q_data["id"]
-                questions_data[question_id] = {
+                question_entry: dict[str, Any] = {
                     "id": question_id,
                     "question": q_data["question"],
                     "raw_answer": q_data["raw_answer"],
@@ -185,6 +230,15 @@ def register_database_routes(
                     "keywords": q_data.get("keywords", []),  # Frontend CheckpointItem expects "keywords"
                     "last_modified": updated_at_map.get(question_id, datetime.now().isoformat()),
                 }
+
+                # Include question-specific rubric if present
+                question_rubric = q_data.get("question_rubric")
+                if question_rubric:
+                    serialized_rubric = _serialize_rubric_to_dict(question_rubric)
+                    if serialized_rubric:
+                        question_entry["question_rubric"] = serialized_rubric
+
+                questions_data[question_id] = question_entry
 
             # Create checkpoint-like response
             # Convert created_at to string if it's a datetime object
@@ -195,6 +249,12 @@ def register_database_routes(
                 else:
                     created_at_str = str(benchmark.created_at)
 
+            # Serialize global rubric
+            global_rubric = None
+            loaded_global_rubric = benchmark.get_global_rubric()
+            if loaded_global_rubric:
+                global_rubric = _serialize_rubric_to_dict(loaded_global_rubric)
+
             checkpoint_data = {
                 "dataset_metadata": {
                     "name": benchmark.name,
@@ -204,7 +264,7 @@ def register_database_routes(
                     "created_at": created_at_str,
                 },
                 "questions": questions_data,
-                "global_rubric": benchmark.global_rubric if hasattr(benchmark, "global_rubric") else None,
+                "global_rubric": global_rubric,
             }
 
             return BenchmarkLoadResponse(
@@ -333,7 +393,7 @@ def register_database_routes(
                     metric_traits = []
 
                     # Process LLM-based traits
-                    for trait_data in rubric_data.get("traits", []):
+                    for trait_data in rubric_data.get("llm_traits", []):
                         kind = trait_data.get("kind", "score")
                         # Map frontend trait types to backend TraitKind
                         if kind in ("binary", "Binary"):
@@ -389,7 +449,7 @@ def register_database_routes(
 
                     if traits or regex_traits or callable_traits or metric_traits:
                         rubric = Rubric(
-                            traits=traits,
+                            llm_traits=traits,
                             regex_traits=regex_traits,
                             callable_traits=callable_traits,
                             metric_traits=metric_traits,
@@ -398,15 +458,16 @@ def register_database_routes(
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas import CallableTrait, RegexTrait
+                from karenina.schemas import CallableTrait, MetricRubricTrait, RegexTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
                 regex_traits = []
                 callable_traits = []
+                metric_traits = []
 
                 # Process LLM-based traits
-                for trait_data in global_rubric_data.get("traits", []):
+                for trait_data in global_rubric_data.get("llm_traits", []):
                     kind = trait_data.get("kind", "score")
                     # Map frontend trait types to backend TraitKind
                     if kind in ("binary", "Binary"):
@@ -447,9 +508,27 @@ def register_database_routes(
                     )
                     callable_traits.append(callable_trait)
 
-                if traits or regex_traits or callable_traits:
-                    benchmark.global_rubric = Rubric(
-                        traits=traits, regex_traits=regex_traits, callable_traits=callable_traits
+                # Process metric traits
+                for metric_trait_data in global_rubric_data.get("metric_traits", []):
+                    metric_trait = MetricRubricTrait(
+                        name=metric_trait_data["name"],
+                        description=metric_trait_data.get("description"),
+                        evaluation_mode=metric_trait_data.get("evaluation_mode", "tp_only"),
+                        metrics=metric_trait_data.get("metrics", []),
+                        tp_instructions=metric_trait_data.get("tp_instructions", []),
+                        tn_instructions=metric_trait_data.get("tn_instructions", []),
+                        repeated_extraction=metric_trait_data.get("repeated_extraction", True),
+                    )
+                    metric_traits.append(metric_trait)
+
+                if traits or regex_traits or callable_traits or metric_traits:
+                    benchmark.set_global_rubric(
+                        Rubric(
+                            llm_traits=traits,
+                            regex_traits=regex_traits,
+                            callable_traits=callable_traits,
+                            metric_traits=metric_traits,
+                        )
                     )
 
             # Save to database (will overwrite if exists, or detect duplicates if requested)
@@ -552,7 +631,7 @@ def register_database_routes(
                     metric_traits = []
 
                     # Process LLM-based traits
-                    for trait_data in rubric_data.get("traits", []):
+                    for trait_data in rubric_data.get("llm_traits", []):
                         kind = trait_data.get("kind", "score")
                         # Map frontend trait types to backend TraitKind
                         if kind in ("binary", "Binary"):
@@ -608,7 +687,7 @@ def register_database_routes(
 
                     if traits or regex_traits or callable_traits or metric_traits:
                         rubric = Rubric(
-                            traits=traits,
+                            llm_traits=traits,
                             regex_traits=regex_traits,
                             callable_traits=callable_traits,
                             metric_traits=metric_traits,
@@ -617,15 +696,16 @@ def register_database_routes(
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas import CallableTrait, RegexTrait
+                from karenina.schemas import CallableTrait, MetricRubricTrait, RegexTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
                 regex_traits = []
                 callable_traits = []
+                metric_traits = []
 
                 # Process LLM-based traits
-                for trait_data in global_rubric_data.get("traits", []):
+                for trait_data in global_rubric_data.get("llm_traits", []):
                     kind = trait_data.get("kind", "score")
                     # Map frontend trait types to backend TraitKind
                     if kind in ("binary", "Binary"):
@@ -666,9 +746,27 @@ def register_database_routes(
                     )
                     callable_traits.append(callable_trait)
 
-                if traits or regex_traits or callable_traits:
-                    benchmark.global_rubric = Rubric(
-                        traits=traits, regex_traits=regex_traits, callable_traits=callable_traits
+                # Process metric traits
+                for metric_trait_data in global_rubric_data.get("metric_traits", []):
+                    metric_trait = MetricRubricTrait(
+                        name=metric_trait_data["name"],
+                        description=metric_trait_data.get("description"),
+                        evaluation_mode=metric_trait_data.get("evaluation_mode", "tp_only"),
+                        metrics=metric_trait_data.get("metrics", []),
+                        tp_instructions=metric_trait_data.get("tp_instructions", []),
+                        tn_instructions=metric_trait_data.get("tn_instructions", []),
+                        repeated_extraction=metric_trait_data.get("repeated_extraction", True),
+                    )
+                    metric_traits.append(metric_trait)
+
+                if traits or regex_traits or callable_traits or metric_traits:
+                    benchmark.set_global_rubric(
+                        Rubric(
+                            llm_traits=traits,
+                            regex_traits=regex_traits,
+                            callable_traits=callable_traits,
+                            metric_traits=metric_traits,
+                        )
                     )
 
             # Save to database (normal save, not detect-only)
