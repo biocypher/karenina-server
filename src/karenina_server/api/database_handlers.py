@@ -7,7 +7,18 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    from karenina.storage import DBConfig, get_benchmark_summary, init_database, load_benchmark, save_benchmark
+    from karenina.storage import (
+        DBConfig,
+        ImportMetadataModel,
+        VerificationRunModel,
+        get_benchmark_summary,
+        get_session,
+        import_verification_results,
+        init_database,
+        load_benchmark,
+        load_verification_results,
+        save_benchmark,
+    )
 
     STORAGE_AVAILABLE = True
 except ImportError:
@@ -48,6 +59,12 @@ def register_database_routes(
     DuplicateResolutionRequest: Any,
     DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
+    ImportResultsRequest: Any,
+    ImportResultsResponse: Any,
+    ListVerificationRunsRequest: Any,
+    ListVerificationRunsResponse: Any,
+    LoadVerificationResultsRequest: Any,
+    LoadVerificationResultsResponse: Any,
 ) -> None:
     """Register database management routes."""
 
@@ -732,3 +749,158 @@ def register_database_routes(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
+
+    # =========================================================================
+    # Verification Results Import/Export Endpoints
+    # =========================================================================
+
+    @app.post("/api/database/import-results", response_model=ImportResultsResponse)  # type: ignore[misc]
+    async def import_results_endpoint(request: ImportResultsRequest) -> ImportResultsResponse:
+        """Import verification results from JSON export format."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Import the results
+            run_id, imported_count = import_verification_results(
+                json_data=request.json_data,
+                db_config=db_config,
+                benchmark_name=request.benchmark_name,
+                run_name=request.run_name,
+            )
+
+            return ImportResultsResponse(
+                success=True,
+                run_id=run_id,
+                imported_count=imported_count,
+                message=f"Successfully imported {imported_count} verification results",
+            )
+
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error importing results: {e!s}") from e
+
+    @app.post("/api/database/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
+    async def list_verification_runs_endpoint(request: ListVerificationRunsRequest) -> ListVerificationRunsResponse:
+        """List all verification runs in the database."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            from sqlalchemy import select
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            runs = []
+            with get_session(db_config) as session:
+                # Build query
+                query = select(VerificationRunModel)
+
+                # Filter by benchmark if specified
+                if request.benchmark_name:
+                    from karenina.storage import BenchmarkModel
+
+                    benchmark = session.execute(
+                        select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                    ).scalar_one_or_none()
+                    if benchmark:
+                        query = query.where(VerificationRunModel.benchmark_id == benchmark.id)
+                    else:
+                        # No benchmark found, return empty list
+                        return ListVerificationRunsResponse(success=True, runs=[], count=0)
+
+                # Execute query
+                run_models = session.execute(query.order_by(VerificationRunModel.created_at.desc())).scalars().all()
+
+                # Check which runs have import metadata
+                imported_run_ids = set()
+                import_results = session.execute(select(ImportMetadataModel.run_id)).scalars().all()
+                imported_run_ids = set(import_results)
+
+                for run in run_models:
+                    # Get benchmark name
+                    from karenina.storage import BenchmarkModel
+
+                    benchmark = session.get(BenchmarkModel, run.benchmark_id)
+                    benchmark_name = benchmark.name if benchmark else "Unknown"
+
+                    runs.append(
+                        {
+                            "id": run.id,
+                            "run_name": run.run_name,
+                            "benchmark_id": run.benchmark_id,
+                            "benchmark_name": benchmark_name,
+                            "status": run.status,
+                            "total_questions": run.total_questions or 0,
+                            "processed_count": run.processed_count or 0,
+                            "successful_count": run.successful_count or 0,
+                            "failed_count": run.failed_count or 0,
+                            "start_time": run.start_time.isoformat() if run.start_time else None,
+                            "end_time": run.end_time.isoformat() if run.end_time else None,
+                            "created_at": run.created_at.isoformat() if run.created_at else "",
+                            "is_imported": run.id in imported_run_ids,
+                        }
+                    )
+
+            return ListVerificationRunsResponse(
+                success=True,
+                runs=runs,
+                count=len(runs),
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error listing verification runs: {e!s}") from e
+
+    @app.post("/api/database/load-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
+    async def load_verification_results_endpoint(
+        request: LoadVerificationResultsRequest,
+    ) -> LoadVerificationResultsResponse:
+        """Load verification results with filtering options."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Load results using the storage function with as_dict=False for list format
+            results = load_verification_results(
+                db_config=db_config,
+                run_id=request.run_id,
+                benchmark_name=request.benchmark_name,
+                question_id=request.question_id,
+                answering_model=request.answering_model,
+                limit=request.limit,
+                as_dict=False,
+            )
+
+            # Convert to summary format
+            result_summaries = []
+            for result in results:
+                result_summaries.append(
+                    {
+                        "id": result.get("id", 0),
+                        "run_id": result.get("run_id", ""),
+                        "question_id": result.get("metadata", {}).get("question_id", ""),
+                        "question_text": result.get("metadata", {}).get("question_text", ""),
+                        "answering_model": result.get("metadata", {}).get("answering_model", ""),
+                        "parsing_model": result.get("metadata", {}).get("parsing_model", ""),
+                        "completed_without_errors": result.get("metadata", {}).get("completed_without_errors", False),
+                        "template_verify_result": result.get("template", {}).get("verify_result")
+                        if result.get("template")
+                        else None,
+                        "execution_time": result.get("metadata", {}).get("execution_time", 0.0),
+                        "timestamp": result.get("metadata", {}).get("timestamp", ""),
+                    }
+                )
+
+            return LoadVerificationResultsResponse(
+                success=True,
+                results=result_summaries,
+                count=len(result_summaries),
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error loading verification results: {e!s}") from e

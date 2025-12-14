@@ -229,6 +229,71 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         is_default_directory: bool
         error: str | None = None
 
+    # Verification Results Import/Export Models
+    class ImportResultsRequest(BaseModel):
+        storage_url: str
+        json_data: dict[str, Any]
+        benchmark_name: str
+        run_name: str | None = None
+
+    class ImportResultsResponse(BaseModel):
+        success: bool
+        run_id: str
+        imported_count: int
+        message: str
+        error: str | None = None
+
+    class VerificationRunInfo(BaseModel):
+        id: str
+        run_name: str | None
+        benchmark_id: str
+        benchmark_name: str
+        status: str
+        total_questions: int
+        processed_count: int
+        successful_count: int
+        failed_count: int
+        start_time: str | None
+        end_time: str | None
+        created_at: str
+        is_imported: bool = False
+
+    class ListVerificationRunsRequest(BaseModel):
+        storage_url: str
+        benchmark_name: str | None = None
+
+    class ListVerificationRunsResponse(BaseModel):
+        success: bool
+        runs: list[VerificationRunInfo]
+        count: int
+        error: str | None = None
+
+    class LoadVerificationResultsRequest(BaseModel):
+        storage_url: str
+        run_id: str | None = None
+        benchmark_name: str | None = None
+        question_id: str | None = None
+        answering_model: str | None = None
+        limit: int | None = None
+
+    class VerificationResultSummary(BaseModel):
+        id: int
+        run_id: str
+        question_id: str
+        question_text: str
+        answering_model: str
+        parsing_model: str
+        completed_without_errors: bool
+        template_verify_result: Any
+        execution_time: float
+        timestamp: str
+
+    class LoadVerificationResultsResponse(BaseModel):
+        success: bool
+        results: list[VerificationResultSummary]
+        count: int
+        error: str | None = None
+
 else:
     # Fallback classes for when FastAPI is not available
     FilePreviewResponse = None  # type: ignore[misc,assignment]
@@ -252,6 +317,14 @@ else:
     BenchmarkSaveResponse = None  # type: ignore[misc,assignment]
     DatabaseInfo = None  # type: ignore[misc,assignment]
     ListDatabasesResponse = None  # type: ignore[misc,assignment]
+    ImportResultsRequest = None  # type: ignore[misc,assignment]
+    ImportResultsResponse = None  # type: ignore[misc,assignment]
+    VerificationRunInfo = None  # type: ignore[misc,assignment]
+    ListVerificationRunsRequest = None  # type: ignore[misc,assignment]
+    ListVerificationRunsResponse = None  # type: ignore[misc,assignment]
+    LoadVerificationResultsRequest = None  # type: ignore[misc,assignment]
+    VerificationResultSummary = None  # type: ignore[misc,assignment]
+    LoadVerificationResultsResponse = None  # type: ignore[misc,assignment]
 
 
 # Global verification service instance
@@ -540,6 +613,12 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         DuplicateResolutionRequest,
         DuplicateResolutionResponse,
         ListDatabasesResponse,
+        ImportResultsRequest,
+        ImportResultsResponse,
+        ListVerificationRunsRequest,
+        ListVerificationRunsResponse,
+        LoadVerificationResultsRequest,
+        LoadVerificationResultsResponse,
     )
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
