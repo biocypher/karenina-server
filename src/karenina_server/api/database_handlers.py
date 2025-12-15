@@ -862,7 +862,7 @@ def register_database_routes(
             db_config = DBConfig(storage_url=request.storage_url)
 
             # Import the results
-            run_id, imported_count = import_verification_results(
+            run_id, imported_count, skipped_count = import_verification_results(
                 json_data=request.json_data,
                 db_config=db_config,
                 benchmark_name=request.benchmark_name,
@@ -873,7 +873,7 @@ def register_database_routes(
                 success=True,
                 run_id=run_id,
                 imported_count=imported_count,
-                message=f"Successfully imported {imported_count} verification results",
+                message=f"Successfully imported {imported_count} verification results ({skipped_count} skipped)",
             )
 
         except ValueError as e:
