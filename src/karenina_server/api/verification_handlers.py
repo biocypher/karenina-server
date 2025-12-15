@@ -40,6 +40,8 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
             # DEBUG: Log what backend receives
             print("🔍 Backend: Received verification request")
+            print(f"  storage_url: {storage_url!r}")
+            print(f"  benchmark_name: {benchmark_name!r}")
             print(f"  Rubric enabled in config? {config_data.get('rubric_enabled', False)}")
 
             # Check if any templates have metric traits
