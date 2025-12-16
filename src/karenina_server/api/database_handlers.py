@@ -7,11 +7,67 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    from karenina.storage import DBConfig, get_benchmark_summary, init_database, load_benchmark, save_benchmark
+    from karenina.storage import (
+        DBConfig,
+        ImportMetadataModel,
+        VerificationRunModel,
+        get_benchmark_summary,
+        get_session,
+        import_verification_results,
+        init_database,
+        load_benchmark,
+        load_verification_results,
+        save_benchmark,
+    )
 
     STORAGE_AVAILABLE = True
 except ImportError:
     STORAGE_AVAILABLE = False
+
+
+def _serialize_rubric_to_dict(rubric: Any) -> dict[str, Any] | None:
+    """
+    Serialize a Rubric object or rubric dict to API-compatible dict format.
+
+    This function handles both Rubric objects and dicts with trait lists,
+    converting Pydantic models to dicts using model_dump().
+
+    Args:
+        rubric: A Rubric object, a dict with trait lists, or None
+
+    Returns:
+        Dict with traits serialized (llm_traits, regex_traits, callable_traits, metric_traits),
+        or None if rubric is None/empty
+    """
+    if rubric is None:
+        return None
+
+    # Handle Rubric object (has llm_traits, regex_traits, etc. as lists of Pydantic models)
+    if hasattr(rubric, "llm_traits"):
+        llm_traits = [t.model_dump() for t in (rubric.llm_traits or [])]
+        regex_traits = [t.model_dump() for t in (rubric.regex_traits or [])]
+        callable_traits = [t.model_dump() for t in (rubric.callable_traits or [])]
+        metric_traits = [t.model_dump() for t in (rubric.metric_traits or [])]
+    # Handle dict with trait object lists (from extract_questions_from_benchmark)
+    elif isinstance(rubric, dict):
+        llm_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("llm_traits", [])]
+        regex_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("regex_traits", [])]
+        callable_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("callable_traits", [])]
+        metric_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("metric_traits", [])]
+    else:
+        return None
+
+    # Return None if no traits at all
+    if not (llm_traits or regex_traits or callable_traits or metric_traits):
+        return None
+
+    # Return with consistent key names matching Rubric schema
+    return {
+        "llm_traits": llm_traits,
+        "regex_traits": regex_traits,
+        "callable_traits": callable_traits,
+        "metric_traits": metric_traits,
+    }
 
 
 def _extract_creator_name(creator: Any) -> str:
@@ -48,6 +104,16 @@ def register_database_routes(
     DuplicateResolutionRequest: Any,
     DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
+    DeleteDatabaseRequest: Any,
+    DeleteDatabaseResponse: Any,
+    DeleteBenchmarkRequest: Any,
+    DeleteBenchmarkResponse: Any,
+    ImportResultsRequest: Any,
+    ImportResultsResponse: Any,
+    ListVerificationRunsRequest: Any,
+    ListVerificationRunsResponse: Any,
+    LoadVerificationResultsRequest: Any,
+    LoadVerificationResultsResponse: Any,
 ) -> None:
     """Register database management routes."""
 
@@ -159,7 +225,7 @@ def register_database_routes(
             questions_data = {}
             for q_data in benchmark.get_all_questions():
                 question_id = q_data["id"]
-                questions_data[question_id] = {
+                question_entry: dict[str, Any] = {
                     "id": question_id,
                     "question": q_data["question"],
                     "raw_answer": q_data["raw_answer"],
@@ -168,6 +234,15 @@ def register_database_routes(
                     "keywords": q_data.get("keywords", []),  # Frontend CheckpointItem expects "keywords"
                     "last_modified": updated_at_map.get(question_id, datetime.now().isoformat()),
                 }
+
+                # Include question-specific rubric if present
+                question_rubric = q_data.get("question_rubric")
+                if question_rubric:
+                    serialized_rubric = _serialize_rubric_to_dict(question_rubric)
+                    if serialized_rubric:
+                        question_entry["question_rubric"] = serialized_rubric
+
+                questions_data[question_id] = question_entry
 
             # Create checkpoint-like response
             # Convert created_at to string if it's a datetime object
@@ -178,6 +253,12 @@ def register_database_routes(
                 else:
                     created_at_str = str(benchmark.created_at)
 
+            # Serialize global rubric
+            global_rubric = None
+            loaded_global_rubric = benchmark.get_global_rubric()
+            if loaded_global_rubric:
+                global_rubric = _serialize_rubric_to_dict(loaded_global_rubric)
+
             checkpoint_data = {
                 "dataset_metadata": {
                     "name": benchmark.name,
@@ -187,7 +268,7 @@ def register_database_routes(
                     "created_at": created_at_str,
                 },
                 "questions": questions_data,
-                "global_rubric": benchmark.global_rubric if hasattr(benchmark, "global_rubric") else None,
+                "global_rubric": global_rubric,
             }
 
             return BenchmarkLoadResponse(
@@ -316,7 +397,7 @@ def register_database_routes(
                     metric_traits = []
 
                     # Process LLM-based traits
-                    for trait_data in rubric_data.get("traits", []):
+                    for trait_data in rubric_data.get("llm_traits", []):
                         kind = trait_data.get("kind", "score")
                         # Map frontend trait types to backend TraitKind
                         if kind in ("binary", "Binary"):
@@ -372,7 +453,7 @@ def register_database_routes(
 
                     if traits or regex_traits or callable_traits or metric_traits:
                         rubric = Rubric(
-                            traits=traits,
+                            llm_traits=traits,
                             regex_traits=regex_traits,
                             callable_traits=callable_traits,
                             metric_traits=metric_traits,
@@ -381,15 +462,16 @@ def register_database_routes(
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas import CallableTrait, RegexTrait
+                from karenina.schemas import CallableTrait, MetricRubricTrait, RegexTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
                 regex_traits = []
                 callable_traits = []
+                metric_traits = []
 
                 # Process LLM-based traits
-                for trait_data in global_rubric_data.get("traits", []):
+                for trait_data in global_rubric_data.get("llm_traits", []):
                     kind = trait_data.get("kind", "score")
                     # Map frontend trait types to backend TraitKind
                     if kind in ("binary", "Binary"):
@@ -430,9 +512,27 @@ def register_database_routes(
                     )
                     callable_traits.append(callable_trait)
 
-                if traits or regex_traits or callable_traits:
-                    benchmark.global_rubric = Rubric(
-                        traits=traits, regex_traits=regex_traits, callable_traits=callable_traits
+                # Process metric traits
+                for metric_trait_data in global_rubric_data.get("metric_traits", []):
+                    metric_trait = MetricRubricTrait(
+                        name=metric_trait_data["name"],
+                        description=metric_trait_data.get("description"),
+                        evaluation_mode=metric_trait_data.get("evaluation_mode", "tp_only"),
+                        metrics=metric_trait_data.get("metrics", []),
+                        tp_instructions=metric_trait_data.get("tp_instructions", []),
+                        tn_instructions=metric_trait_data.get("tn_instructions", []),
+                        repeated_extraction=metric_trait_data.get("repeated_extraction", True),
+                    )
+                    metric_traits.append(metric_trait)
+
+                if traits or regex_traits or callable_traits or metric_traits:
+                    benchmark.set_global_rubric(
+                        Rubric(
+                            llm_traits=traits,
+                            regex_traits=regex_traits,
+                            callable_traits=callable_traits,
+                            metric_traits=metric_traits,
+                        )
                     )
 
             # Save to database (will overwrite if exists, or detect duplicates if requested)
@@ -535,7 +635,7 @@ def register_database_routes(
                     metric_traits = []
 
                     # Process LLM-based traits
-                    for trait_data in rubric_data.get("traits", []):
+                    for trait_data in rubric_data.get("llm_traits", []):
                         kind = trait_data.get("kind", "score")
                         # Map frontend trait types to backend TraitKind
                         if kind in ("binary", "Binary"):
@@ -591,7 +691,7 @@ def register_database_routes(
 
                     if traits or regex_traits or callable_traits or metric_traits:
                         rubric = Rubric(
-                            traits=traits,
+                            llm_traits=traits,
                             regex_traits=regex_traits,
                             callable_traits=callable_traits,
                             metric_traits=metric_traits,
@@ -600,15 +700,16 @@ def register_database_routes(
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                from karenina.schemas import CallableTrait, RegexTrait
+                from karenina.schemas import CallableTrait, MetricRubricTrait, RegexTrait
 
                 global_rubric_data = request.checkpoint_data["global_rubric"]
                 traits = []
                 regex_traits = []
                 callable_traits = []
+                metric_traits = []
 
                 # Process LLM-based traits
-                for trait_data in global_rubric_data.get("traits", []):
+                for trait_data in global_rubric_data.get("llm_traits", []):
                     kind = trait_data.get("kind", "score")
                     # Map frontend trait types to backend TraitKind
                     if kind in ("binary", "Binary"):
@@ -649,9 +750,27 @@ def register_database_routes(
                     )
                     callable_traits.append(callable_trait)
 
-                if traits or regex_traits or callable_traits:
-                    benchmark.global_rubric = Rubric(
-                        traits=traits, regex_traits=regex_traits, callable_traits=callable_traits
+                # Process metric traits
+                for metric_trait_data in global_rubric_data.get("metric_traits", []):
+                    metric_trait = MetricRubricTrait(
+                        name=metric_trait_data["name"],
+                        description=metric_trait_data.get("description"),
+                        evaluation_mode=metric_trait_data.get("evaluation_mode", "tp_only"),
+                        metrics=metric_trait_data.get("metrics", []),
+                        tp_instructions=metric_trait_data.get("tp_instructions", []),
+                        tn_instructions=metric_trait_data.get("tn_instructions", []),
+                        repeated_extraction=metric_trait_data.get("repeated_extraction", True),
+                    )
+                    metric_traits.append(metric_trait)
+
+                if traits or regex_traits or callable_traits or metric_traits:
+                    benchmark.set_global_rubric(
+                        Rubric(
+                            llm_traits=traits,
+                            regex_traits=regex_traits,
+                            callable_traits=callable_traits,
+                            metric_traits=metric_traits,
+                        )
                     )
 
             # Save to database (normal save, not detect-only)
@@ -732,3 +851,290 @@ def register_database_routes(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
+
+    @app.delete("/api/database/delete", response_model=DeleteDatabaseResponse)  # type: ignore[misc]
+    async def delete_database_endpoint(request: DeleteDatabaseRequest) -> DeleteDatabaseResponse:
+        """Delete a SQLite database file.
+
+        Only works for SQLite databases. The database file must be in the DB_PATH directory
+        (or current working directory if DB_PATH is not set).
+
+        Safety measures:
+        - Only SQLite databases can be deleted
+        - Database must be within the allowed directory
+        - Closes any active connections before deletion
+        """
+        try:
+            storage_url = request.storage_url
+
+            # Validate it's a SQLite URL
+            if not storage_url.startswith("sqlite:///"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only SQLite databases can be deleted. URL must start with 'sqlite:///'",
+                )
+
+            # Extract the file path from the URL
+            db_path = Path(storage_url.replace("sqlite:///", ""))
+
+            # Validate the file exists
+            if not db_path.exists():
+                raise HTTPException(status_code=404, detail=f"Database file not found: {db_path}")
+
+            if not db_path.is_file():
+                raise HTTPException(status_code=400, detail=f"Path is not a file: {db_path}")
+
+            # Validate the file is within the allowed directory
+            db_directory = os.environ.get("DB_PATH")
+            allowed_dir = Path(db_directory if db_directory else os.getcwd()).resolve()
+            db_path_resolved = db_path.resolve()
+
+            if not str(db_path_resolved).startswith(str(allowed_dir)):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Cannot delete database outside of allowed directory: {allowed_dir}",
+                )
+
+            # Close any active connections to this database
+            if STORAGE_AVAILABLE:
+                try:
+                    from karenina.storage import close_engine
+
+                    db_config = DBConfig(storage_url=storage_url)
+                    close_engine(db_config)
+                except Exception:
+                    pass  # Ignore errors closing connections
+
+            # Delete the file
+            db_name = db_path.name
+            db_path.unlink()
+
+            return DeleteDatabaseResponse(
+                success=True,
+                message=f"Successfully deleted database: {db_name}",
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting database: {e!s}") from e
+
+    @app.delete("/api/database/delete-benchmark", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
+    async def delete_benchmark_endpoint(request: DeleteBenchmarkRequest) -> DeleteBenchmarkResponse:
+        """Delete a benchmark and all its associated data.
+
+        This will delete:
+        - The benchmark record
+        - All questions associated with the benchmark
+        - All verification runs and results associated with the benchmark
+        """
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, VerificationRunModel
+            from sqlalchemy import func, select
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            with get_session(db_config) as session:
+                # Find the benchmark
+                benchmark = session.execute(
+                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                ).scalar_one_or_none()
+
+                if not benchmark:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Benchmark '{request.benchmark_name}' not found",
+                    )
+
+                # Count associated data for the response
+                question_count = (
+                    session.execute(
+                        select(func.count(BenchmarkQuestionModel.id)).where(
+                            BenchmarkQuestionModel.benchmark_id == benchmark.id
+                        )
+                    ).scalar()
+                    or 0
+                )
+
+                run_count = (
+                    session.execute(
+                        select(func.count(VerificationRunModel.id)).where(
+                            VerificationRunModel.benchmark_id == benchmark.id
+                        )
+                    ).scalar()
+                    or 0
+                )
+
+                # Delete the benchmark (cascade will delete questions and runs)
+                session.delete(benchmark)
+                session.commit()
+
+                return DeleteBenchmarkResponse(
+                    success=True,
+                    message=f"Successfully deleted benchmark '{request.benchmark_name}'",
+                    deleted_questions=question_count,
+                    deleted_runs=run_count,
+                )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting benchmark: {e!s}") from e
+
+    # =========================================================================
+    # Verification Results Import/Export Endpoints
+    # =========================================================================
+
+    @app.post("/api/database/import-results", response_model=ImportResultsResponse)  # type: ignore[misc]
+    async def import_results_endpoint(request: ImportResultsRequest) -> ImportResultsResponse:
+        """Import verification results from JSON export format."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Import the results
+            run_id, imported_count, skipped_count = import_verification_results(
+                json_data=request.json_data,
+                db_config=db_config,
+                benchmark_name=request.benchmark_name,
+                run_name=request.run_name,
+            )
+
+            return ImportResultsResponse(
+                success=True,
+                run_id=run_id,
+                imported_count=imported_count,
+                message=f"Successfully imported {imported_count} verification results ({skipped_count} skipped)",
+            )
+
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error importing results: {e!s}") from e
+
+    @app.post("/api/database/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
+    async def list_verification_runs_endpoint(request: ListVerificationRunsRequest) -> ListVerificationRunsResponse:
+        """List all verification runs in the database."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            from sqlalchemy import select
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            runs = []
+            with get_session(db_config) as session:
+                # Build query
+                query = select(VerificationRunModel)
+
+                # Filter by benchmark if specified
+                if request.benchmark_name:
+                    from karenina.storage import BenchmarkModel
+
+                    benchmark = session.execute(
+                        select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                    ).scalar_one_or_none()
+                    if benchmark:
+                        query = query.where(VerificationRunModel.benchmark_id == benchmark.id)
+                    else:
+                        # No benchmark found, return empty list
+                        return ListVerificationRunsResponse(success=True, runs=[], count=0)
+
+                # Execute query
+                run_models = session.execute(query.order_by(VerificationRunModel.created_at.desc())).scalars().all()
+
+                # Check which runs have import metadata
+                imported_run_ids = set()
+                import_results = session.execute(select(ImportMetadataModel.run_id)).scalars().all()
+                imported_run_ids = set(import_results)
+
+                for run in run_models:
+                    # Get benchmark name
+                    from karenina.storage import BenchmarkModel
+
+                    benchmark = session.get(BenchmarkModel, run.benchmark_id)
+                    benchmark_name = benchmark.name if benchmark else "Unknown"
+
+                    runs.append(
+                        {
+                            "id": run.id,
+                            "run_name": run.run_name,
+                            "benchmark_id": run.benchmark_id,
+                            "benchmark_name": benchmark_name,
+                            "status": run.status,
+                            "total_questions": run.total_questions or 0,
+                            "processed_count": run.processed_count or 0,
+                            "successful_count": run.successful_count or 0,
+                            "failed_count": run.failed_count or 0,
+                            "start_time": run.start_time.isoformat() if run.start_time else None,
+                            "end_time": run.end_time.isoformat() if run.end_time else None,
+                            "created_at": run.created_at.isoformat() if run.created_at else "",
+                            "is_imported": run.id in imported_run_ids,
+                        }
+                    )
+
+            return ListVerificationRunsResponse(
+                success=True,
+                runs=runs,
+                count=len(runs),
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error listing verification runs: {e!s}") from e
+
+    @app.post("/api/database/load-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
+    async def load_verification_results_endpoint(
+        request: LoadVerificationResultsRequest,
+    ) -> LoadVerificationResultsResponse:
+        """Load verification results with filtering options."""
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            # Load results using the storage function with as_dict=False for list format
+            results = load_verification_results(
+                db_config=db_config,
+                run_id=request.run_id,
+                benchmark_name=request.benchmark_name,
+                question_id=request.question_id,
+                answering_model=request.answering_model,
+                limit=request.limit,
+                as_dict=False,
+            )
+
+            # Convert to summary format
+            result_summaries = []
+            for result in results:
+                result_summaries.append(
+                    {
+                        "id": result.get("id", 0),
+                        "run_id": result.get("run_id", ""),
+                        "question_id": result.get("metadata", {}).get("question_id", ""),
+                        "question_text": result.get("metadata", {}).get("question_text", ""),
+                        "answering_model": result.get("metadata", {}).get("answering_model", ""),
+                        "parsing_model": result.get("metadata", {}).get("parsing_model", ""),
+                        "completed_without_errors": result.get("metadata", {}).get("completed_without_errors", False),
+                        "template_verify_result": result.get("template", {}).get("verify_result")
+                        if result.get("template")
+                        else None,
+                        "execution_time": result.get("metadata", {}).get("execution_time", 0.0),
+                        "timestamp": result.get("metadata", {}).get("timestamp", ""),
+                    }
+                )
+
+            return LoadVerificationResultsResponse(
+                success=True,
+                results=result_summaries,
+                count=len(result_summaries),
+            )
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error loading verification results: {e!s}") from e
