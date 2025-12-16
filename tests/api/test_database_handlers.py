@@ -37,9 +37,19 @@ def mock_app():
         BenchmarkSaveResponse,
         DatabaseConnectRequest,
         DatabaseConnectResponse,
+        DeleteBenchmarkRequest,
+        DeleteBenchmarkResponse,
+        DeleteDatabaseRequest,
+        DeleteDatabaseResponse,
         DuplicateResolutionRequest,
         DuplicateResolutionResponse,
+        ImportResultsRequest,
+        ImportResultsResponse,
         ListDatabasesResponse,
+        ListVerificationRunsRequest,
+        ListVerificationRunsResponse,
+        LoadVerificationResultsRequest,
+        LoadVerificationResultsResponse,
     )
 
     register_database_routes(
@@ -56,6 +66,16 @@ def mock_app():
         DuplicateResolutionRequest,
         DuplicateResolutionResponse,
         ListDatabasesResponse,
+        DeleteDatabaseRequest,
+        DeleteDatabaseResponse,
+        DeleteBenchmarkRequest,
+        DeleteBenchmarkResponse,
+        ImportResultsRequest,
+        ImportResultsResponse,
+        ListVerificationRunsRequest,
+        ListVerificationRunsResponse,
+        LoadVerificationResultsRequest,
+        LoadVerificationResultsResponse,
     )
 
     return app

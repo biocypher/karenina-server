@@ -229,6 +229,25 @@ if FASTAPI_AVAILABLE and BaseModel is not None:
         is_default_directory: bool
         error: str | None = None
 
+    class DeleteDatabaseRequest(BaseModel):
+        storage_url: str  # Must be sqlite:/// URL
+
+    class DeleteDatabaseResponse(BaseModel):
+        success: bool
+        message: str
+        error: str | None = None
+
+    class DeleteBenchmarkRequest(BaseModel):
+        storage_url: str
+        benchmark_name: str
+
+    class DeleteBenchmarkResponse(BaseModel):
+        success: bool
+        message: str
+        deleted_questions: int = 0
+        deleted_runs: int = 0
+        error: str | None = None
+
     # Verification Results Import/Export Models
     class ImportResultsRequest(BaseModel):
         storage_url: str
@@ -317,6 +336,10 @@ else:
     BenchmarkSaveResponse = None  # type: ignore[misc,assignment]
     DatabaseInfo = None  # type: ignore[misc,assignment]
     ListDatabasesResponse = None  # type: ignore[misc,assignment]
+    DeleteDatabaseRequest = None  # type: ignore[misc,assignment]
+    DeleteDatabaseResponse = None  # type: ignore[misc,assignment]
+    DeleteBenchmarkRequest = None  # type: ignore[misc,assignment]
+    DeleteBenchmarkResponse = None  # type: ignore[misc,assignment]
     ImportResultsRequest = None  # type: ignore[misc,assignment]
     ImportResultsResponse = None  # type: ignore[misc,assignment]
     VerificationRunInfo = None  # type: ignore[misc,assignment]
@@ -613,6 +636,10 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         DuplicateResolutionRequest,
         DuplicateResolutionResponse,
         ListDatabasesResponse,
+        DeleteDatabaseRequest,
+        DeleteDatabaseResponse,
+        DeleteBenchmarkRequest,
+        DeleteBenchmarkResponse,
         ImportResultsRequest,
         ImportResultsResponse,
         ListVerificationRunsRequest,

@@ -104,6 +104,10 @@ def register_database_routes(
     DuplicateResolutionRequest: Any,
     DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
+    DeleteDatabaseRequest: Any,
+    DeleteDatabaseResponse: Any,
+    DeleteBenchmarkRequest: Any,
+    DeleteBenchmarkResponse: Any,
     ImportResultsRequest: Any,
     ImportResultsResponse: Any,
     ListVerificationRunsRequest: Any,
@@ -847,6 +851,138 @@ def register_database_routes(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
+
+    @app.delete("/api/database/delete", response_model=DeleteDatabaseResponse)  # type: ignore[misc]
+    async def delete_database_endpoint(request: DeleteDatabaseRequest) -> DeleteDatabaseResponse:
+        """Delete a SQLite database file.
+
+        Only works for SQLite databases. The database file must be in the DB_PATH directory
+        (or current working directory if DB_PATH is not set).
+
+        Safety measures:
+        - Only SQLite databases can be deleted
+        - Database must be within the allowed directory
+        - Closes any active connections before deletion
+        """
+        try:
+            storage_url = request.storage_url
+
+            # Validate it's a SQLite URL
+            if not storage_url.startswith("sqlite:///"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only SQLite databases can be deleted. URL must start with 'sqlite:///'",
+                )
+
+            # Extract the file path from the URL
+            db_path = Path(storage_url.replace("sqlite:///", ""))
+
+            # Validate the file exists
+            if not db_path.exists():
+                raise HTTPException(status_code=404, detail=f"Database file not found: {db_path}")
+
+            if not db_path.is_file():
+                raise HTTPException(status_code=400, detail=f"Path is not a file: {db_path}")
+
+            # Validate the file is within the allowed directory
+            db_directory = os.environ.get("DB_PATH")
+            allowed_dir = Path(db_directory if db_directory else os.getcwd()).resolve()
+            db_path_resolved = db_path.resolve()
+
+            if not str(db_path_resolved).startswith(str(allowed_dir)):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Cannot delete database outside of allowed directory: {allowed_dir}",
+                )
+
+            # Close any active connections to this database
+            if STORAGE_AVAILABLE:
+                try:
+                    from karenina.storage import close_engine
+
+                    db_config = DBConfig(storage_url=storage_url)
+                    close_engine(db_config)
+                except Exception:
+                    pass  # Ignore errors closing connections
+
+            # Delete the file
+            db_name = db_path.name
+            db_path.unlink()
+
+            return DeleteDatabaseResponse(
+                success=True,
+                message=f"Successfully deleted database: {db_name}",
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting database: {e!s}") from e
+
+    @app.delete("/api/database/delete-benchmark", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
+    async def delete_benchmark_endpoint(request: DeleteBenchmarkRequest) -> DeleteBenchmarkResponse:
+        """Delete a benchmark and all its associated data.
+
+        This will delete:
+        - The benchmark record
+        - All questions associated with the benchmark
+        - All verification runs and results associated with the benchmark
+        """
+        if not STORAGE_AVAILABLE:
+            raise HTTPException(status_code=500, detail="Storage functionality not available")
+
+        try:
+            from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, VerificationRunModel
+            from sqlalchemy import func, select
+
+            db_config = DBConfig(storage_url=request.storage_url)
+
+            with get_session(db_config) as session:
+                # Find the benchmark
+                benchmark = session.execute(
+                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                ).scalar_one_or_none()
+
+                if not benchmark:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Benchmark '{request.benchmark_name}' not found",
+                    )
+
+                # Count associated data for the response
+                question_count = (
+                    session.execute(
+                        select(func.count(BenchmarkQuestionModel.id)).where(
+                            BenchmarkQuestionModel.benchmark_id == benchmark.id
+                        )
+                    ).scalar()
+                    or 0
+                )
+
+                run_count = (
+                    session.execute(
+                        select(func.count(VerificationRunModel.id)).where(
+                            VerificationRunModel.benchmark_id == benchmark.id
+                        )
+                    ).scalar()
+                    or 0
+                )
+
+                # Delete the benchmark (cascade will delete questions and runs)
+                session.delete(benchmark)
+                session.commit()
+
+                return DeleteBenchmarkResponse(
+                    success=True,
+                    message=f"Successfully deleted benchmark '{request.benchmark_name}'",
+                    deleted_questions=question_count,
+                    deleted_runs=run_count,
+                )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting benchmark: {e!s}") from e
 
     # =========================================================================
     # Verification Results Import/Export Endpoints
