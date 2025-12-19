@@ -282,15 +282,13 @@ class VerificationService:
                     # For single replicate, don't include replicate numbers
                     if job.config.replicate_count == 1:
                         combination_id = f"{template.question_id}_{answering_model.id}_{parsing_model.id}"
-                        answering_replicate = None
-                        parsing_replicate = None
+                        rep = None
                     else:
-                        # For multiple replicates, include replicate number in ID and track separately
+                        # For multiple replicates, include replicate number in ID
                         combination_id = (
                             f"{template.question_id}_{answering_model.id}_{parsing_model.id}_rep{replicate}"
                         )
-                        answering_replicate = replicate
-                        parsing_replicate = replicate
+                        rep = replicate
 
                     # For OpenRouter interface, don't include provider in the model string
                     if answering_model.interface == "openrouter":
@@ -319,8 +317,7 @@ class VerificationService:
                             timestamp=datetime.now().isoformat(),
                             run_name=job.run_name,
                             job_id=job.job_id,
-                            answering_replicate=answering_replicate,
-                            parsing_replicate=parsing_replicate,
+                            replicate=rep,
                         ),
                         template=VerificationResultTemplate(
                             raw_llm_response="",

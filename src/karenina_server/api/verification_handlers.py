@@ -471,7 +471,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
                         replicate_groups: dict[int, list[Any]] = defaultdict(list)
                         for r in matching_results:
-                            replicate_num = r.metadata.answering_replicate or 0
+                            replicate_num = r.metadata.replicate or 0
                             replicate_groups[replicate_num].append(r)
 
                         # For each replicate group, select the result to display
@@ -498,7 +498,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                         for result in deduplicated_results:
                             # Extract template pass/fail status and rubric score if available
                             cell_data = {
-                                "replicate": result.metadata.answering_replicate,
+                                "replicate": result.metadata.replicate,
                                 "passed": None,
                                 "score": None,
                                 "abstained": False,

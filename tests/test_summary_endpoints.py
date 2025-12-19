@@ -34,8 +34,7 @@ def sample_results() -> dict[str, dict[str, object]]:
                 "keywords": ["math"],
                 "answering_model": "gpt-4o-mini",
                 "parsing_model": "gpt-4o-mini",
-                "answering_replicate": 1,
-                "parsing_replicate": 1,
+                "replicate": 1,
                 "completed_without_errors": True,
                 "error": None,
                 "execution_time": 1.5,
@@ -69,8 +68,7 @@ def sample_results() -> dict[str, dict[str, object]]:
                 "keywords": ["geography"],
                 "answering_model": "gpt-4o-mini",
                 "parsing_model": "gpt-4o-mini",
-                "answering_replicate": 1,
-                "parsing_replicate": 1,
+                "replicate": 1,
                 "completed_without_errors": True,
                 "error": None,
                 "execution_time": 1.2,
@@ -104,8 +102,7 @@ def sample_results() -> dict[str, dict[str, object]]:
                 "keywords": ["math"],
                 "answering_model": "claude-3-5-sonnet-20241022",
                 "parsing_model": "gpt-4o-mini",
-                "answering_replicate": 1,
-                "parsing_replicate": 1,
+                "replicate": 1,
                 "completed_without_errors": True,
                 "error": None,
                 "execution_time": 2.1,
@@ -230,8 +227,8 @@ def test_compare_models_endpoint(client: TestClient, sample_results: dict[str, d
     assert q1_row is not None
     assert "gpt-4o-mini|[]" in q1_row["results_by_model"]
     assert "claude-3-5-sonnet-20241022|[]" in q1_row["results_by_model"]
-    assert q1_row["results_by_model"]["gpt-4o-mini|[]"]["passed"] is True
-    assert q1_row["results_by_model"]["claude-3-5-sonnet-20241022|[]"]["passed"] is True
+    assert q1_row["results_by_model"]["gpt-4o-mini|[]"]["replicates"][0]["passed"] is True
+    assert q1_row["results_by_model"]["claude-3-5-sonnet-20241022|[]"]["replicates"][0]["passed"] is True
 
 
 def test_compare_models_no_models(client: TestClient, sample_results: dict[str, dict[str, object]]) -> None:
