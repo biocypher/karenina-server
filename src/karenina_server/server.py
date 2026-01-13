@@ -605,6 +605,10 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
             print("Warning: Verification service not available")
 
     # Register API routes from extracted handlers
+    # Add CORS middleware to allow requests from the frontend dev server
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from .api.auth_handlers import router as auth_router
     from .api.config_handlers import router as config_router
     from .api.database_handlers import register_database_routes
     from .api.file_handlers import register_file_routes
@@ -614,6 +618,27 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     from .api.preset_handlers import router as preset_router
     from .api.rubric_handlers import router as rubric_router
     from .api.verification_handlers import register_verification_routes
+    from .middleware.csrf_middleware import CsrfMiddleware
+
+    origins = [
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:8080",  # Production server
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8080",
+    ]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Add CSRF middleware for validating tokens on mutation requests
+    # Set enabled=True to enforce CSRF protection, or False for gradual rollout
+    csrf_enabled = os.environ.get("KARENINA_CSRF_ENABLED", "false").lower() == "true"
+    app.add_middleware(CsrfMiddleware, enabled=csrf_enabled)
 
     # Register all route handlers
     register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, ExtractQuestionsResponse)
@@ -647,6 +672,10 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         LoadVerificationResultsRequest,
         LoadVerificationResultsResponse,
     )
+    # Auth router for CSRF token endpoint
+    # Mount at both /api/auth and /api for compatibility with frontend which expects /api/csrf-token
+    app.include_router(auth_router, prefix="/api/auth")
+    app.include_router(auth_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")

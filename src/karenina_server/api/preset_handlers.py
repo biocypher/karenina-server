@@ -117,6 +117,8 @@ def _generate_preset_summary(config_dict: dict[str, Any]) -> dict[str, Any]:
         summary["enabled_features"].append("rubric")
     if config_dict.get("abstention_enabled"):
         summary["enabled_features"].append("abstention")
+    if config_dict.get("sufficiency_enabled"):
+        summary["enabled_features"].append("sufficiency")
     if config_dict.get("deep_judgment_enabled"):
         summary["enabled_features"].append("deep_judgment")
     if config_dict.get("deep_judgment_search_enabled"):
