@@ -16,6 +16,12 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load .env from project root
 
+# E2E fixture mode setup - must happen BEFORE importing karenina LLM modules
+# This patches init_chat_model_unified to return fixture-backed client
+from .testing.e2e_fixture_mode import setup_e2e_fixture_mode  # noqa: E402
+
+setup_e2e_fixture_mode()
+
 # FastAPI imports
 try:
     import uvicorn
