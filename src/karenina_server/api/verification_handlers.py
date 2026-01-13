@@ -502,6 +502,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                                 "passed": None,
                                 "score": None,
                                 "abstained": False,
+                                "insufficient": False,
                                 "error": result.metadata.error is not None,
                             }
 
@@ -510,6 +511,10 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
 
                             if result.template and hasattr(result.template, "abstention_detected"):
                                 cell_data["abstained"] = result.template.abstention_detected or False
+
+                            if result.template and hasattr(result.template, "sufficiency_detected"):
+                                # sufficiency_detected=False means insufficient, True means sufficient
+                                cell_data["insufficient"] = result.template.sufficiency_detected is False
 
                             if result.rubric and hasattr(result.rubric, "overall_score"):
                                 cell_data["score"] = result.rubric.overall_score
