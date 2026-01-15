@@ -359,9 +359,8 @@ class VerificationService:
 
         # Include result_set if completed
         if job.status == "completed" and job.result_set:
-            # Convert to legacy dict format with proper keys including timestamp
-            # This ensures unique keys for each run: {question_id}_{model}_{timestamp_ms}
-            progress_data["result_set"] = job.result_set.to_legacy_dict()
+            # Pass result_set directly - it's a VerificationResultSet that serializes properly
+            progress_data["result_set"] = job.result_set
 
         return progress_data
 
