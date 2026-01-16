@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
 from typing import Any
 
@@ -174,6 +174,56 @@ class VerificationService:
             logger.debug(f"Job {job_id} status forced: {old_status} -> {new.value}")
             return True
 
+    def _handle_job_completion(self, job_id: str, future: Future[None]) -> None:
+        """Handle job completion callback from ThreadPoolExecutor (conc-004).
+
+        This callback is invoked when the future completes (success or failure).
+        It ensures that any unhandled exceptions in the worker thread are surfaced
+        and the job is properly marked as failed, preventing jobs from hanging
+        indefinitely in 'running' state.
+
+        Args:
+            job_id: The job identifier
+            future: The completed Future object
+        """
+        job = self.jobs.get(job_id)
+        if not job:
+            logger.warning(f"Job completion callback: job {job_id} not found")
+            return
+
+        # Check if the future raised an exception
+        try:
+            # This will re-raise any exception from the worker thread
+            future.result(timeout=0)  # Non-blocking since future is already done
+        except Exception as e:
+            # Log the full exception with stack trace
+            logger.error(
+                f"Job {job_id} worker thread raised an unhandled exception: {e}",
+                exc_info=True,
+            )
+
+            # Check if job is already in a terminal state (may have been handled in _run_verification)
+            current_status = self._get_job_status(job_id)
+            if current_status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+                logger.debug(
+                    f"Job {job_id} already in terminal state {current_status.value}, "
+                    "exception was likely handled in _run_verification"
+                )
+                return
+
+            # Job is still in RUNNING state but worker died - mark as failed
+            with self._get_job_lock(job_id):
+                job.error_message = f"Worker thread exception: {e}"
+                job.end_time = time.time()
+
+            # Force status to FAILED since the job may be in an unexpected state
+            self._force_status(job_id, JobStatus.FAILED)
+
+            # Emit job_failed event so clients are notified
+            self._emit_progress_event(job_id, "job_failed", {"error": str(e)})
+
+            logger.info(f"Job {job_id} marked as failed due to worker thread exception")
+
     def start_verification(
         self,
         finished_templates: list[FinishedTemplate],
@@ -239,6 +289,10 @@ class VerificationService:
         logger.info(f"   Active jobs: {sum(1 for j in self.jobs.values() if j.status in ['pending', 'running'])}")
         future = self.executor.submit(self._run_verification, job, templates_to_verify)
         self.futures[job_id] = future
+
+        # Add done callback to catch unhandled exceptions (conc-004)
+        # This ensures jobs don't hang in 'running' state if the worker thread fails
+        future.add_done_callback(lambda f: self._handle_job_completion(job_id, f))
 
         return job_id
 
