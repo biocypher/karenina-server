@@ -28,4 +28,4 @@ jobs:
           uv pip install -e ".[dev]" --no-sources
 
       - name: Run tests
-        run: uv run pytest -v
+        run: .venv/bin/pytest -v
