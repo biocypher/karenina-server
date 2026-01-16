@@ -13,7 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 class ProgressBroadcaster:
-    """Manages WebSocket connections for broadcasting progress updates."""
+    """Manages WebSocket connections for broadcasting progress updates.
+
+    Lock Hierarchy (conc-005):
+        1. _lock (asyncio.Lock) - Protects subscribers dict modifications
+
+    This class uses asyncio.Lock (not threading.Lock) because all subscriber
+    management occurs in async context. The broadcast_from_thread() method
+    safely schedules broadcasts onto the event loop without holding locks
+    across thread boundaries.
+    """
 
     def __init__(self) -> None:
         self.subscribers: dict[str, list[WebSocket]] = defaultdict(list)

@@ -48,6 +48,13 @@ class CsrfTokenStore:
     Tokens are stored per client (identified by cookie or IP).
     This is suitable for single-server deployments. For multi-server
     deployments, consider using Redis or another shared store.
+
+    Lock Hierarchy (conc-005):
+        1. _lock (class-level) - Protects singleton instance creation
+        2. _store_lock (instance-level) - Protects token storage operations
+
+    This class has no dependencies on other service locks and can be
+    safely acquired at any point without deadlock risk.
     """
 
     _instance: ClassVar["CsrfTokenStore | None"] = None
