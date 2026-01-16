@@ -1,8 +1,11 @@
 """Template generation API handlers."""
 
+import logging
 from typing import Any
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 
 try:
     import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
@@ -121,6 +124,22 @@ def register_generation_routes(
         # Subscribe to progress updates
         await generation_service.broadcaster.subscribe(job_id, websocket)
 
+        # Track cleanup state to avoid duplicate unsubscribe calls
+        cleanup_done = asyncio.Event()
+
+        async def receive_loop() -> None:
+            """Handle incoming WebSocket messages with proper exception handling."""
+            while True:
+                try:
+                    # Receive messages (mainly for keepalive/ping)
+                    await websocket.receive_text()
+                except WebSocketDisconnect:
+                    logger.debug("WebSocket disconnected for job_id=%s", job_id)
+                    break
+                except Exception as e:
+                    logger.warning("Error receiving WebSocket message for job_id=%s: %s", job_id, e)
+                    break
+
         try:
             # Send current state immediately
             progress = generation_service.get_progress(job_id)
@@ -142,15 +161,15 @@ def register_generation_routes(
                 )
 
             # Keep connection alive and wait for disconnect
-            while True:
-                try:
-                    # Receive messages (mainly for keepalive/ping)
-                    await websocket.receive_text()
-                except WebSocketDisconnect:
-                    break
+            await receive_loop()
 
-        except Exception:
-            pass  # Connection closed
+        except Exception as e:
+            logger.warning("Error in WebSocket handler for job_id=%s: %s", job_id, e)
         finally:
-            # Unsubscribe and clean up
-            await generation_service.broadcaster.unsubscribe(job_id, websocket)
+            # Unsubscribe and clean up, but only if not already done
+            if not cleanup_done.is_set():
+                try:
+                    await generation_service.broadcaster.unsubscribe(job_id, websocket)
+                    cleanup_done.set()
+                except Exception as e:
+                    logger.warning("Error during WebSocket cleanup for job_id=%s: %s", job_id, e)
