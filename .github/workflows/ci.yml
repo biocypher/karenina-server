@@ -25,7 +25,7 @@ jobs:
         run: |
           uv venv
           uv pip install git+https://github.com/biocypher/karenina.git@dev
-          uv pip install -e ".[dev]"
+          uv pip install -e ".[dev]" --no-sources
 
       - name: Run tests
         run: uv run pytest -v
