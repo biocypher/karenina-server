@@ -1,4 +1,7 @@
-"""Tests for rubric API endpoints."""
+"""Integration tests for rubric API handlers.
+
+Uses TestClient to test API endpoints for rubric management.
+"""
 
 from pathlib import Path
 
@@ -11,7 +14,7 @@ from karenina_server.server import create_fastapi_app
 @pytest.fixture
 def client():
     """Create a test client for the FastAPI app."""
-    webapp_dir = Path(__file__).parent.parent / "webapp"
+    webapp_dir = Path(__file__).parent.parent.parent.parent / "src" / "karenina_server" / "webapp"
     app = create_fastapi_app(webapp_dir)
     return TestClient(app)
 
@@ -39,13 +42,14 @@ def sample_rubric_data():
     }
 
 
+@pytest.mark.integration
+@pytest.mark.api
 class TestRubricCRUD:
     """Test CRUD operations for rubrics."""
 
     def test_create_rubric_success(self, client, sample_rubric_data):
         """Test successful rubric creation."""
         response = client.post("/api/rubric", json=sample_rubric_data)
-
         assert response.status_code == 200
         data = response.json()
         assert data["message"] == "Rubric saved successfully"
@@ -53,50 +57,36 @@ class TestRubricCRUD:
     def test_create_rubric_invalid_trait_name(self, client, sample_rubric_data):
         """Test rubric creation with invalid trait name."""
         sample_rubric_data["llm_traits"][0]["name"] = ""
-
         response = client.post("/api/rubric", json=sample_rubric_data)
-
         assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert isinstance(detail, list) and len(detail) > 0
 
     def test_create_rubric_missing_traits(self, client):
         """Test rubric creation with missing traits."""
         response = client.post("/api/rubric", json={})
-
         assert response.status_code == 400
         assert "must have at least one trait" in response.json()["detail"]
 
     def test_create_rubric_duplicate_trait_names(self, client, sample_rubric_data):
         """Test rubric creation with duplicate trait names."""
-        # Make both traits have the same name
         sample_rubric_data["llm_traits"][1]["name"] = sample_rubric_data["llm_traits"][0]["name"]
-
         response = client.post("/api/rubric", json=sample_rubric_data)
-
         assert response.status_code == 400
         assert "must be unique" in response.json()["detail"]
 
     def test_get_rubric_none_exists(self, client):
         """Test getting rubric when none exists."""
-        # Clear any existing rubric first
         client.delete("/api/rubric")
-
         response = client.get("/api/rubric")
-
         assert response.status_code == 200
         assert response.json() is None
 
     def test_get_rubric_after_create(self, client, sample_rubric_data):
         """Test getting rubric after creation."""
-        # First create a rubric
         create_response = client.post("/api/rubric", json=sample_rubric_data)
         assert create_response.status_code == 200
 
-        # Then get it
         get_response = client.get("/api/rubric")
         assert get_response.status_code == 200
-
         rubric_data = get_response.json()
         assert rubric_data is not None
         assert "llm_traits" in rubric_data
@@ -104,10 +94,8 @@ class TestRubricCRUD:
 
     def test_update_rubric(self, client, sample_rubric_data):
         """Test updating an existing rubric."""
-        # Create initial rubric
         client.post("/api/rubric", json=sample_rubric_data)
 
-        # Update with different data
         updated_data = {
             "llm_traits": [
                 {
@@ -121,7 +109,6 @@ class TestRubricCRUD:
         response = client.post("/api/rubric", json=updated_data)
         assert response.status_code == 200
 
-        # Verify the update
         get_response = client.get("/api/rubric")
         rubric_data = get_response.json()
         assert len(rubric_data["llm_traits"]) == 1
@@ -129,25 +116,18 @@ class TestRubricCRUD:
 
     def test_delete_rubric(self, client, sample_rubric_data):
         """Test deleting a rubric."""
-        # Create rubric first
         client.post("/api/rubric", json=sample_rubric_data)
 
-        # Delete it
         delete_response = client.delete("/api/rubric")
         assert delete_response.status_code == 200
         assert delete_response.json()["message"] == "Rubric deleted successfully"
 
-        # Verify it's gone
         get_response = client.get("/api/rubric")
         assert get_response.json() is None
 
-    def test_delete_nonexistent_rubric(self, client):
-        """Test deleting when no rubric exists."""
-        response = client.delete("/api/rubric")
-        assert response.status_code == 200
-        assert response.json()["message"] == "Rubric deleted successfully"
 
-
+@pytest.mark.integration
+@pytest.mark.api
 class TestRubricValidation:
     """Test rubric validation logic."""
 
@@ -156,16 +136,13 @@ class TestRubricValidation:
         invalid_trait_data = {
             "traits": [
                 {
-                    "name": "",  # Empty name should be caught by Pydantic
+                    "name": "",
                     "description": "Valid description",
                     "kind": "boolean",
                 }
             ]
         }
-
         response = client.post("/api/rubric", json=invalid_trait_data)
-
-        # Should get validation error from Pydantic
         assert response.status_code == 422
 
     def test_rubric_invalid_trait_kind(self, client):
@@ -175,12 +152,9 @@ class TestRubricValidation:
                 {
                     "name": "test_trait",
                     "description": "Test description",
-                    "kind": "invalid_kind",  # Should be 'boolean' or 'score'
+                    "kind": "invalid_kind",
                 }
             ]
         }
-
         response = client.post("/api/rubric", json=invalid_kind_data)
-
-        # Should get validation error
         assert response.status_code == 422

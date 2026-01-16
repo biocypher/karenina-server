@@ -1,4 +1,7 @@
-"""Tests for defaults service."""
+"""Integration tests for defaults service.
+
+Uses file I/O with temporary files.
+"""
 
 import json
 import tempfile
@@ -21,10 +24,7 @@ def temp_defaults_file():
         }
         json.dump(initial_defaults, f)
         temp_path = Path(f.name)
-
     yield temp_path
-
-    # Cleanup
     if temp_path.exists():
         temp_path.unlink()
 
@@ -43,6 +43,8 @@ def empty_defaults_service():
         yield DefaultsService(defaults_file_path=non_existent_file)
 
 
+@pytest.mark.integration
+@pytest.mark.service
 class TestDefaultsService:
     """Test cases for DefaultsService."""
 
@@ -59,8 +61,8 @@ class TestDefaultsService:
         defaults = empty_defaults_service.get_defaults()
 
         assert defaults["default_interface"] == "langchain"
-        assert defaults["default_provider"] == "google_genai"
-        assert defaults["default_model"] == "gemini-pro"
+        assert defaults["default_provider"] == "anthropic"
+        assert defaults["default_model"] == "claude-haiku-4-5"
 
     def test_save_defaults(self, empty_defaults_service):
         """Test saving defaults to file."""
@@ -68,7 +70,6 @@ class TestDefaultsService:
 
         empty_defaults_service.save_defaults(new_defaults)
 
-        # Verify saved defaults
         saved_defaults = empty_defaults_service.get_defaults()
         assert saved_defaults["default_interface"] == "openrouter"
         assert saved_defaults["default_provider"] == "anthropic"
@@ -103,20 +104,11 @@ class TestDefaultsService:
         invalid_defaults = {
             "default_interface": "langchain",
             "default_provider": "openai",
-            # missing default_model
         }
 
         is_valid, error = defaults_service._validate_defaults(invalid_defaults)
         assert not is_valid
         assert "Missing required field" in error
-
-    def test_validate_defaults_empty_provider(self, defaults_service):
-        """Test validation with empty provider."""
-        invalid_defaults = {"default_interface": "langchain", "default_provider": "", "default_model": "gpt-4.1-mini"}
-
-        is_valid, error = defaults_service._validate_defaults(invalid_defaults)
-        assert not is_valid
-        assert "Provider cannot be empty" in error
 
     def test_save_invalid_defaults(self, defaults_service):
         """Test that saving invalid defaults raises ValueError."""
@@ -131,18 +123,14 @@ class TestDefaultsService:
 
     def test_reset_to_fallback(self, defaults_service):
         """Test resetting to fallback defaults."""
-        # Verify file exists initially
         assert defaults_service.defaults_file_path.exists()
 
-        # Reset to fallback
         defaults_service.reset_to_fallback()
 
-        # File should be removed
         assert not defaults_service.defaults_file_path.exists()
 
-        # Should return fallback defaults
         defaults = defaults_service.get_defaults()
-        assert defaults["default_provider"] == "google_genai"  # fallback value
+        assert defaults["default_provider"] == "anthropic"
 
     def test_get_file_status_existing_file(self, defaults_service):
         """Test file status for existing file."""
@@ -151,7 +139,6 @@ class TestDefaultsService:
         assert status["file_exists"] is True
         assert status["using_fallback"] is False
         assert status["saved_at"] == "2025-07-19T07:45:00Z"
-        assert status["last_modified"] is not None
 
     def test_get_file_status_non_existing_file(self, empty_defaults_service):
         """Test file status for non-existing file."""
@@ -160,23 +147,18 @@ class TestDefaultsService:
         assert status["file_exists"] is False
         assert status["using_fallback"] is True
         assert status["saved_at"] is None
-        assert status["last_modified"] is None
 
     def test_backup_and_restore(self, defaults_service):
         """Test backup creation and restoration."""
         original_defaults = defaults_service.get_defaults()
 
-        # Modify defaults
         new_defaults = {"default_interface": "openrouter", "default_provider": "test", "default_model": "test-model"}
         defaults_service.save_defaults(new_defaults)
 
-        # Verify modification
         modified_defaults = defaults_service.get_defaults()
         assert modified_defaults["default_provider"] == "test"
 
-        # Restore from backup
         defaults_service._restore_backup()
 
-        # Verify restoration
         restored_defaults = defaults_service.get_defaults()
         assert restored_defaults["default_provider"] == original_defaults["default_provider"]

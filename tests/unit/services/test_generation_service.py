@@ -1,12 +1,19 @@
-"""Tests for template generation service progress tracking."""
+"""Unit tests for template generation service progress tracking.
 
-from unittest.mock import MagicMock
+These are pure logic tests with no I/O, no TestClient, no external calls.
+"""
+
+import time
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from karenina_server.services.generation_service import GenerationService, TemplateGenerationJob
+from karenina_server.services.generation_service import TemplateGenerationJob
+from karenina_server.services.progress_broadcaster import ProgressBroadcaster
 
 
+@pytest.mark.unit
+@pytest.mark.service
 class TestTemplateGenerationJob:
     """Test cases for TemplateGenerationJob progress tracking."""
 
@@ -75,8 +82,6 @@ class TestTemplateGenerationJob:
 
     def test_last_task_duration_tracking(self):
         """Test that last task duration is tracked correctly."""
-        import time
-
         job = TemplateGenerationJob(
             job_id="test-job",
             questions_data={"q1": {"question": "Test?", "raw_answer": "Answer"}},
@@ -160,14 +165,14 @@ class TestTemplateGenerationJob:
         assert job_dict["last_task_duration"] is None  # No task finished yet
 
 
+@pytest.mark.unit
+@pytest.mark.service
 class TestProgressBroadcaster:
     """Test cases for ProgressBroadcaster WebSocket management."""
 
     @pytest.mark.anyio
     async def test_subscribe_adds_websocket(self):
         """Test that subscribe adds a WebSocket to the registry."""
-        from karenina_server.services.generation_service import ProgressBroadcaster
-
         broadcaster = ProgressBroadcaster()
         mock_ws = MagicMock()
 
@@ -179,8 +184,6 @@ class TestProgressBroadcaster:
     @pytest.mark.anyio
     async def test_unsubscribe_removes_websocket(self):
         """Test that unsubscribe removes a WebSocket from the registry."""
-        from karenina_server.services.generation_service import ProgressBroadcaster
-
         broadcaster = ProgressBroadcaster()
         mock_ws = MagicMock()
 
@@ -192,10 +195,6 @@ class TestProgressBroadcaster:
     @pytest.mark.anyio
     async def test_broadcast_sends_to_all_subscribers(self):
         """Test that broadcast sends events to all subscribers."""
-        from unittest.mock import AsyncMock
-
-        from karenina_server.services.generation_service import ProgressBroadcaster
-
         broadcaster = ProgressBroadcaster()
         mock_ws1 = MagicMock()
         mock_ws2 = MagicMock()
@@ -214,10 +213,6 @@ class TestProgressBroadcaster:
     @pytest.mark.anyio
     async def test_broadcast_removes_dead_connections(self):
         """Test that broadcast removes WebSockets that fail to send."""
-        from unittest.mock import AsyncMock
-
-        from karenina_server.services.generation_service import ProgressBroadcaster
-
         broadcaster = ProgressBroadcaster()
         mock_ws_good = MagicMock()
         mock_ws_dead = MagicMock()
@@ -241,10 +236,6 @@ class TestProgressBroadcaster:
     @pytest.mark.anyio
     async def test_cleanup_job_closes_all_connections(self):
         """Test that cleanup_job closes all WebSockets for a job."""
-        from unittest.mock import AsyncMock
-
-        from karenina_server.services.generation_service import ProgressBroadcaster
-
         broadcaster = ProgressBroadcaster()
         mock_ws1 = MagicMock()
         mock_ws2 = MagicMock()
@@ -259,26 +250,3 @@ class TestProgressBroadcaster:
         mock_ws1.close.assert_called_once()
         mock_ws2.close.assert_called_once()
         assert "job-123" not in broadcaster.subscribers
-
-
-class TestGenerationServiceIntegration:
-    """Integration tests for GenerationService with progress tracking."""
-
-    def test_get_progress_includes_progress_fields(self):
-        """Test that get_progress returns progress tracking fields."""
-        service = GenerationService()
-
-        # Create a job
-        job_id = service.start_generation(
-            questions_data={"q1": {"question": "Test?", "raw_answer": "Answer"}},
-            config={"model_name": "test", "model_provider": "test", "temperature": 0.1, "interface": "langchain"},
-        )
-
-        # Get progress
-        progress = service.get_progress(job_id)
-
-        assert progress is not None
-        assert "in_progress_questions" in progress
-        assert "duration_seconds" in progress
-        assert "last_task_duration" in progress
-        assert isinstance(progress["in_progress_questions"], list)

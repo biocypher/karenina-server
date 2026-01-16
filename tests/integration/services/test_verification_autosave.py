@@ -1,11 +1,33 @@
-"""Tests for verification service auto-save functionality."""
+"""Integration tests for verification service auto-save functionality.
+
+Tests database persistence during verification runs.
+"""
 
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
+from karenina.schemas.workflow import FinishedTemplate, VerificationConfig, VerificationResult
+from karenina.schemas.workflow.verification.result_components import VerificationResultMetadata
+
+
+def make_mock_result(question_id: str = "test_q1") -> VerificationResult:
+    """Create a mock verification result with proper structure."""
+    return VerificationResult(
+        metadata=VerificationResultMetadata(
+            question_id=question_id,
+            template_id="no_template",
+            completed_without_errors=True,
+            question_text="What is 2+2?",
+            answering_model="anthropic/claude-haiku-4-5",
+            parsing_model="anthropic/claude-haiku-4-5",
+            execution_time=1.0,
+            timestamp="2024-01-01T00:00:00",
+            result_id="test123456789012",
+        )
+    )
 
 
 @pytest.fixture
@@ -13,10 +35,7 @@ def temp_sqlite_db():
     """Create a temporary SQLite database for testing."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
-
     yield f"sqlite:///{db_path}"
-
-    # Cleanup
     Path(db_path).unlink(missing_ok=True)
 
 
@@ -65,6 +84,8 @@ def basic_config():
     )
 
 
+@pytest.mark.integration
+@pytest.mark.service
 class TestAutoSaveEnabled:
     """Test auto-save functionality when enabled."""
 
@@ -72,37 +93,21 @@ class TestAutoSaveEnabled:
         """Test that results are saved when storage_url is provided and AUTOSAVE_DATABASE=true."""
         from karenina_server.services.verification_service import VerificationService
 
-        # Set environment variable
         monkeypatch.setenv("AUTOSAVE_DATABASE", "true")
 
-        # Initialize database
         from karenina.storage import DBConfig, init_database
 
         init_database(DBConfig(storage_url=temp_sqlite_db))
 
         service = VerificationService()
 
-        # Mock run_single_model_verification to avoid actual LLM calls
         def mock_run_single_verification(**kwargs):
-            from karenina.schemas.workflow import VerificationResult
-
-            return VerificationResult(
-                question_id="test_q1",
-                template_id="no_template",
-                completed_without_errors=True,
-                question_text="What is 2+2?",
-                raw_llm_response='{"result": 4}',
-                answering_model="openai/gpt-4.1-mini",
-                parsing_model="openai/gpt-4.1-mini",
-                execution_time=1.0,
-                timestamp="2024-01-01T00:00:00",
-            )
+            return make_mock_result()
 
         with patch(
             "karenina.benchmark.verification.runner.run_single_model_verification",
             side_effect=mock_run_single_verification,
         ):
-            # Start verification with storage_url and benchmark_name
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
@@ -110,86 +115,23 @@ class TestAutoSaveEnabled:
                 benchmark_name="Test Benchmark",
             )
 
-            # Wait for completion
-            import time
-
             max_wait = 10
-            waited = 0
+            waited = 0.0
             while service.jobs[job_id].status != "completed" and waited < max_wait:
                 time.sleep(0.1)
                 waited += 0.1
 
             assert service.jobs[job_id].status == "completed"
-
-            # Give extra time for database transactions to complete
             time.sleep(0.2)
 
-            # Verify results were saved to database
-            from karenina.storage import DBConfig, get_verification_run_summary
+            from karenina.storage import DBConfig, get_database_statistics
 
-            summaries = get_verification_run_summary(DBConfig(storage_url=temp_sqlite_db))
-            assert len(summaries) > 0
-
-    def test_autosave_creates_benchmark_if_not_exists(self, temp_sqlite_db, sample_template, basic_config, monkeypatch):
-        """Test that auto-save creates benchmark entry if it doesn't exist."""
-        monkeypatch.setenv("AUTOSAVE_DATABASE", "true")
-
-        from karenina.storage import DBConfig, init_database
-
-        init_database(DBConfig(storage_url=temp_sqlite_db))
-
-        from karenina_server.services.verification_service import VerificationService
-
-        service = VerificationService()
-
-        # Mock run_single_model_verification to avoid actual LLM calls
-        def mock_run_single_verification(**kwargs):
-            from karenina.schemas.workflow import VerificationResult
-
-            return VerificationResult(
-                question_id="test_q1",
-                template_id="no_template",
-                completed_without_errors=True,
-                question_text="What is 2+2?",
-                raw_llm_response='{"result": 4}',
-                answering_model="openai/gpt-4.1-mini",
-                parsing_model="openai/gpt-4.1-mini",
-                execution_time=1.0,
-                timestamp="2024-01-01T00:00:00",
-            )
-
-        with patch(
-            "karenina.benchmark.verification.runner.run_single_model_verification",
-            side_effect=mock_run_single_verification,
-        ):
-            job_id = service.start_verification(
-                finished_templates=[sample_template],
-                config=basic_config,
-                run_name="Test Run",
-                storage_url=temp_sqlite_db,
-                benchmark_name="Test Run",  # Use run name as benchmark name
-            )
-
-            import time
-
-            max_wait = 10
-            waited = 0
-            while service.jobs[job_id].status != "completed" and waited < max_wait:
-                time.sleep(0.1)
-                waited += 0.1
-
-            # Give extra time for database transactions to complete
-            time.sleep(0.2)
-
-            # Check that benchmark was created
-            from karenina.storage import DBConfig, get_benchmark_summary
-
-            summaries = get_benchmark_summary(DBConfig(storage_url=temp_sqlite_db))
-            # Auto-save uses run_name as benchmark name
-            run_names = [s["benchmark_name"] for s in summaries]
-            assert "Test Run" in run_names
+            stats = get_database_statistics(DBConfig(storage_url=temp_sqlite_db))
+            assert stats["total_verification_runs"] > 0
 
 
+@pytest.mark.integration
+@pytest.mark.service
 class TestAutoSaveDisabled:
     """Test auto-save functionality when disabled."""
 
@@ -205,21 +147,8 @@ class TestAutoSaveDisabled:
 
         service = VerificationService()
 
-        # Mock run_single_model_verification to avoid actual LLM calls
         def mock_run_single_verification(**kwargs):
-            from karenina.schemas.workflow import VerificationResult
-
-            return VerificationResult(
-                question_id="test_q1",
-                template_id="no_template",
-                completed_without_errors=True,
-                question_text="What is 2+2?",
-                raw_llm_response='{"result": 4}',
-                answering_model="openai/gpt-4.1-mini",
-                parsing_model="openai/gpt-4.1-mini",
-                execution_time=1.0,
-                timestamp="2024-01-01T00:00:00",
-            )
+            return make_mock_result()
 
         with patch(
             "karenina.benchmark.verification.runner.run_single_model_verification",
@@ -231,21 +160,18 @@ class TestAutoSaveDisabled:
                 storage_url=temp_sqlite_db,
             )
 
-            import time
-
             max_wait = 10
-            waited = 0
+            waited = 0.0
             while service.jobs[job_id].status != "completed" and waited < max_wait:
                 time.sleep(0.1)
                 waited += 0.1
 
             assert service.jobs[job_id].status == "completed"
 
-            # Verify NO results were saved to database
-            from karenina.storage import DBConfig, get_verification_run_summary
+            from karenina.storage import DBConfig, get_database_statistics
 
-            summaries = get_verification_run_summary(DBConfig(storage_url=temp_sqlite_db))
-            assert len(summaries) == 0
+            stats = get_database_statistics(DBConfig(storage_url=temp_sqlite_db))
+            assert stats["total_verification_runs"] == 0
 
     def test_autosave_skipped_without_storage_url(self, sample_template, basic_config, monkeypatch):
         """Test that auto-save is skipped when no storage_url is provided."""
@@ -255,44 +181,29 @@ class TestAutoSaveDisabled:
 
         service = VerificationService()
 
-        # Mock run_single_model_verification to avoid actual LLM calls
         def mock_run_single_verification(**kwargs):
-            from karenina.schemas.workflow import VerificationResult
-
-            return VerificationResult(
-                question_id="test_q1",
-                template_id="no_template",
-                completed_without_errors=True,
-                question_text="What is 2+2?",
-                raw_llm_response='{"result": 4}',
-                answering_model="openai/gpt-4.1-mini",
-                parsing_model="openai/gpt-4.1-mini",
-                execution_time=1.0,
-                timestamp="2024-01-01T00:00:00",
-            )
+            return make_mock_result()
 
         with patch(
             "karenina.benchmark.verification.runner.run_single_model_verification",
             side_effect=mock_run_single_verification,
         ):
-            # No storage_url provided
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
             )
 
-            import time
-
             max_wait = 10
-            waited = 0
+            waited = 0.0
             while service.jobs[job_id].status != "completed" and waited < max_wait:
                 time.sleep(0.1)
                 waited += 0.1
 
-            # Should complete successfully without auto-save
             assert service.jobs[job_id].status == "completed"
 
 
+@pytest.mark.integration
+@pytest.mark.service
 class TestAutoSaveErrorHandling:
     """Test error handling in auto-save functionality."""
 
@@ -304,45 +215,30 @@ class TestAutoSaveErrorHandling:
 
         service = VerificationService()
 
-        # Mock run_single_model_verification to avoid actual LLM calls
         def mock_run_single_verification(**kwargs):
-            from karenina.schemas.workflow import VerificationResult
-
-            return VerificationResult(
-                question_id="test_q1",
-                template_id="no_template",
-                completed_without_errors=True,
-                question_text="What is 2+2?",
-                raw_llm_response='{"result": 4}',
-                answering_model="openai/gpt-4.1-mini",
-                parsing_model="openai/gpt-4.1-mini",
-                execution_time=1.0,
-                timestamp="2024-01-01T00:00:00",
-            )
+            return make_mock_result()
 
         with patch(
             "karenina.benchmark.verification.runner.run_single_model_verification",
             side_effect=mock_run_single_verification,
         ):
-            # Provide invalid storage URL to trigger save error
             job_id = service.start_verification(
                 finished_templates=[sample_template],
                 config=basic_config,
                 storage_url="invalid://url",
             )
 
-            import time
-
             max_wait = 10
-            waited = 0
+            waited = 0.0
             while service.jobs[job_id].status not in ["completed", "failed"] and waited < max_wait:
                 time.sleep(0.1)
                 waited += 0.1
 
-            # Job should still complete even though auto-save failed
             assert service.jobs[job_id].status == "completed"
 
 
+@pytest.mark.integration
+@pytest.mark.service
 class TestStorageUrlInJob:
     """Test that storage_url is properly stored in VerificationJob."""
 

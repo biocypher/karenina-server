@@ -4,6 +4,7 @@ import logging
 import os
 import time
 import uuid
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -24,6 +25,11 @@ from .progress_broadcaster import ProgressBroadcaster
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Cleanup configuration constants
+_CLEANUP_INTERVAL_SECONDS = 3600  # Run cleanup at most once per hour
+_MAX_JOB_AGE_HOURS = 24  # Remove jobs older than 24 hours
+_MAX_HISTORICAL_RESULTS = 1000  # Keep at most 1000 historical result sets
+
 
 class VerificationService:
     """Service for managing verification jobs."""
@@ -42,9 +48,11 @@ class VerificationService:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.jobs: dict[str, VerificationJob] = {}
         self.futures: dict[str, Any] = {}
-        # Store all historical results keyed by job_id
-        self.historical_results: dict[str, VerificationResultSet] = {}
+        # Store all historical results keyed by job_id (OrderedDict for LRU eviction)
+        self.historical_results: OrderedDict[str, VerificationResultSet] = OrderedDict()
         self.broadcaster = ProgressBroadcaster()
+        # Track last cleanup time to avoid excessive cleanup checks
+        self._last_cleanup_time = time.time()
 
     def start_verification(
         self,
@@ -56,6 +64,9 @@ class VerificationService:
         benchmark_name: str | None = None,
     ) -> str:
         """Start a new verification job."""
+        # Opportunistically run cleanup to prevent memory leaks
+        self._maybe_cleanup()
+
         # Validate rubric availability if rubric evaluation is enabled
         if getattr(config, "rubric_enabled", False):
             from ..services.rubric_service import rubric_service
@@ -113,6 +124,9 @@ class VerificationService:
 
     def get_job_status(self, job_id: str) -> dict[str, Any] | None:
         """Get the status of a verification job."""
+        # Opportunistically run cleanup to prevent memory leaks
+        self._maybe_cleanup()
+
         job = self.jobs.get(job_id)
         return job.to_dict() if job else None
 
@@ -138,8 +152,15 @@ class VerificationService:
             return True
         return False
 
-    def cleanup_old_jobs(self, max_age_hours: int = 24) -> None:
-        """Clean up old jobs to prevent memory leaks."""
+    def cleanup_old_jobs(self, max_age_hours: int = _MAX_JOB_AGE_HOURS) -> int:
+        """Clean up old jobs to prevent memory leaks.
+
+        Args:
+            max_age_hours: Maximum age in hours before a job is removed
+
+        Returns:
+            Number of jobs removed
+        """
         current_time = time.time()
         jobs_to_remove = []
 
@@ -151,8 +172,43 @@ class VerificationService:
 
         for job_id in jobs_to_remove:
             del self.jobs[job_id]
-            if job_id in self.futures:
-                del self.futures[job_id]
+            self.futures.pop(job_id, None)  # Use pop() for atomic removal
+            self.historical_results.pop(job_id, None)  # Also clean historical results
+
+        return len(jobs_to_remove)
+
+    def _cleanup_historical_results(self) -> int:
+        """Trim historical_results to stay within the max limit.
+
+        Uses LRU eviction - removes oldest entries first.
+
+        Returns:
+            Number of result sets removed
+        """
+        removed_count = 0
+        while len(self.historical_results) > _MAX_HISTORICAL_RESULTS:
+            # Remove oldest entry (first item in OrderedDict)
+            self.historical_results.popitem(last=False)
+            removed_count += 1
+        return removed_count
+
+    def _maybe_cleanup(self) -> None:
+        """Run cleanup if sufficient time has passed since last cleanup.
+
+        This method is called opportunistically during normal operations
+        to prevent unbounded memory growth without requiring a background thread.
+        """
+        current_time = time.time()
+        if current_time - self._last_cleanup_time >= _CLEANUP_INTERVAL_SECONDS:
+            jobs_removed = self.cleanup_old_jobs()
+            results_removed = self._cleanup_historical_results()
+            self._last_cleanup_time = current_time
+
+            if jobs_removed > 0 or results_removed > 0:
+                logger.info(
+                    f"🧹 Periodic cleanup: removed {jobs_removed} old jobs, "
+                    f"trimmed {results_removed} historical results"
+                )
 
     def _load_current_rubric(self) -> Rubric | None:
         """

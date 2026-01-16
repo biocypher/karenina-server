@@ -1,10 +1,13 @@
 """Service for managing persistent default LLM configuration settings."""
 # ruff: noqa: B904  # Intentionally suppress exception chaining for security
 
+import contextlib
+import fcntl
 import json
 import logging
 import os
 import shutil
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -36,6 +39,39 @@ class DefaultsService:
             "default_model": "claude-haiku-4-5",
             "default_endpoint_base_url": None,
         }
+
+        # Lock file path (adjacent to defaults file)
+        self._lock_file_path = self.defaults_file_path.with_suffix(".lock")
+
+    @contextlib.contextmanager
+    def _file_lock(self, exclusive: bool = False) -> Generator[None, None, None]:
+        """Acquire a file lock for concurrent access safety.
+
+        Uses fcntl.flock() for advisory locking. This prevents race conditions
+        when multiple processes try to read/write the defaults file.
+
+        Args:
+            exclusive: If True, acquire exclusive (write) lock. If False, acquire shared (read) lock.
+
+        Yields:
+            None when lock is acquired.
+        """
+        # Ensure lock file parent directory exists
+        self._lock_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Open lock file (create if doesn't exist)
+        lock_fd = os.open(str(self._lock_file_path), os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            # Acquire lock (blocking)
+            lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            fcntl.flock(lock_fd, lock_type)
+            try:
+                yield
+            finally:
+                # Release lock
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
 
     def _validate_file_path(self, file_path: Path) -> Path:
         """Validate file path to prevent directory traversal attacks.
@@ -145,13 +181,26 @@ class DefaultsService:
     def get_defaults(self) -> dict[str, str | None]:
         """Get current default configuration.
 
+        Uses a shared (read) lock to prevent reading during concurrent writes.
+        Handles FileNotFoundError and json.JSONDecodeError gracefully by
+        returning fallback defaults.
+
         Returns:
             Dictionary of default configuration values
         """
         try:
-            if self.defaults_file_path.exists():
-                with open(self.defaults_file_path) as f:
-                    saved_defaults = json.load(f)
+            with self._file_lock(exclusive=False):
+                # Try to open directly - handles TOCTOU by relying on exception
+                # instead of exists() check
+                try:
+                    with open(self.defaults_file_path) as f:
+                        saved_defaults = json.load(f)
+                except FileNotFoundError:
+                    logger.info("Defaults file not found, using fallback defaults")
+                    return self.fallback_defaults.copy()
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON in defaults file: {e}, using fallback")
+                    return self.fallback_defaults.copy()
 
                 # Validate saved defaults
                 is_valid, error = self._validate_defaults(saved_defaults)
@@ -165,6 +214,7 @@ class DefaultsService:
                     }
                 else:
                     logger.warning(f"Invalid saved defaults: {error}, using fallback")
+                    return self.fallback_defaults.copy()
 
         except Exception as e:
             logger.error(f"Error reading defaults file: {e}, using fallback")
@@ -176,6 +226,10 @@ class DefaultsService:
     def save_defaults(self, defaults: dict[str, str | None]) -> None:
         """Save default configuration to file.
 
+        Uses an exclusive (write) lock to prevent concurrent reads/writes.
+        Uses atomic write pattern (write to temp file, then rename) to ensure
+        file is never in a partial state.
+
         Args:
             defaults: Dictionary of default values to save
 
@@ -183,103 +237,146 @@ class DefaultsService:
             ValueError: If validation fails
             IOError: If file operations fail
         """
-        # Validate defaults
+        # Validate defaults (outside lock since it doesn't touch files)
         is_valid, error_msg = self._validate_defaults(defaults)
         if not is_valid:
             raise ValueError(error_msg)
 
-        # Create backup if file exists
-        self._create_backup()
+        with self._file_lock(exclusive=True):
+            # Create backup if file exists (now protected by lock)
+            self._create_backup_unlocked()
 
-        try:
-            # Prepare data to save
-            data_to_save = {
-                "default_interface": defaults["default_interface"],
-                "default_provider": defaults["default_provider"],
-                "default_model": defaults["default_model"],
-                "default_endpoint_base_url": defaults.get("default_endpoint_base_url"),
-                "saved_at": datetime.utcnow().isoformat() + "Z",
-            }
-
-            # Write to file with secure permissions
-            # Use temporary file and atomic move
-            temp_file = self.defaults_file_path.with_suffix(".tmp")
-            fd = os.open(str(temp_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
             try:
-                with os.fdopen(fd, "w") as f:
-                    json.dump(data_to_save, f, indent=2)
-            except:
-                os.close(fd)
+                # Prepare data to save
+                data_to_save = {
+                    "default_interface": defaults["default_interface"],
+                    "default_provider": defaults["default_provider"],
+                    "default_model": defaults["default_model"],
+                    "default_endpoint_base_url": defaults.get("default_endpoint_base_url"),
+                    "saved_at": datetime.utcnow().isoformat() + "Z",
+                }
+
+                # Ensure parent directory exists
+                self.defaults_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Write to temp file with secure permissions, then atomic rename
+                temp_file = self.defaults_file_path.with_suffix(".tmp")
+                fd = os.open(str(temp_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+                try:
+                    with os.fdopen(fd, "w") as f:
+                        json.dump(data_to_save, f, indent=2)
+                except Exception:
+                    os.close(fd)
+                    raise
+
+                # Atomic move to replace original file
+                temp_file.replace(self.defaults_file_path)
+
+                logger.info(f"Saved defaults to {self.defaults_file_path}")
+
+            except Exception as e:
+                logger.error(f"Error saving defaults: {e}")
+                self._restore_backup_unlocked()
                 raise
-
-            # Atomic move to replace original file
-            temp_file.replace(self.defaults_file_path)
-
-            logger.info(f"Saved defaults to {self.defaults_file_path}")
-
-        except Exception as e:
-            logger.error(f"Error saving defaults: {e}")
-            self._restore_backup()
-            raise
 
     def reset_to_fallback(self) -> None:
         """Reset defaults to hardcoded fallback values.
 
-        This removes the defaults.json file, causing the system to use fallback defaults.
+        Uses an exclusive lock. This removes the defaults.json file, causing the
+        system to use fallback defaults.
         """
-        try:
-            if self.defaults_file_path.exists():
-                # Create backup before removal
-                self._create_backup()
-                self.defaults_file_path.unlink()
-                logger.info("Reset defaults to fallback values")
-        except Exception as e:
-            logger.error(f"Error resetting defaults: {e}")
-            raise
+        with self._file_lock(exclusive=True):
+            try:
+                # Try to unlink directly - handles TOCTOU by relying on exception
+                # instead of exists() check
+                try:
+                    # Create backup before removal
+                    self._create_backup_unlocked()
+                    self.defaults_file_path.unlink()
+                    logger.info("Reset defaults to fallback values")
+                except FileNotFoundError:
+                    # File already doesn't exist, which is fine
+                    logger.info("Defaults file already absent, nothing to reset")
+            except Exception as e:
+                logger.error(f"Error resetting defaults: {e}")
+                raise
 
     def _create_backup(self) -> None:
-        """Create a backup of the current defaults file."""
-        if self.defaults_file_path.exists():
-            backup_path = self.defaults_file_path.with_suffix(".json.backup")
+        """Create a backup of the current defaults file (with lock)."""
+        with self._file_lock(exclusive=False):
+            self._create_backup_unlocked()
+
+    def _create_backup_unlocked(self) -> None:
+        """Create a backup of the current defaults file (caller must hold lock).
+
+        Uses try/except instead of exists() check to handle TOCTOU race.
+        """
+        backup_path = self.defaults_file_path.with_suffix(".json.backup")
+        try:
             shutil.copy2(self.defaults_file_path, backup_path)
             logger.debug(f"Created backup at {backup_path}")
+        except FileNotFoundError:
+            # Original file doesn't exist, nothing to backup
+            pass
 
     def _restore_backup(self) -> None:
-        """Restore defaults file from backup."""
+        """Restore defaults file from backup (with lock)."""
+        with self._file_lock(exclusive=True):
+            self._restore_backup_unlocked()
+
+    def _restore_backup_unlocked(self) -> None:
+        """Restore defaults file from backup (caller must hold lock).
+
+        Uses try/except instead of exists() check to handle TOCTOU race.
+        """
         backup_path = self.defaults_file_path.with_suffix(".json.backup")
-        if backup_path.exists():
+        try:
             shutil.copy2(backup_path, self.defaults_file_path)
             logger.info("Restored defaults file from backup")
+        except FileNotFoundError:
+            # Backup file doesn't exist, nothing to restore
+            logger.warning("No backup file found to restore")
 
     def get_file_status(self) -> dict[str, Any]:
         """Get status information about the defaults file.
 
+        Uses a shared (read) lock for consistent status retrieval.
+
         Returns:
             Dictionary with file status information
         """
-        status = {
-            "file_exists": self.defaults_file_path.exists(),
+        status: dict[str, Any] = {
+            "file_exists": False,
             "file_path": str(self.defaults_file_path),
-            "using_fallback": False,
+            "using_fallback": True,
             "last_modified": None,
             "saved_at": None,
         }
 
-        if status["file_exists"]:
-            try:
-                # Get file modification time
-                stat = self.defaults_file_path.stat()
-                status["last_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        try:
+            with self._file_lock(exclusive=False):
+                # Try to stat and read the file directly - handles TOCTOU
+                try:
+                    # Get file modification time
+                    stat = self.defaults_file_path.stat()
+                    status["file_exists"] = True
+                    status["using_fallback"] = False
+                    status["last_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
 
-                # Get saved_at from file content
-                with open(self.defaults_file_path) as f:
-                    data = json.load(f)
-                    status["saved_at"] = data.get("saved_at")
+                    # Get saved_at from file content
+                    with open(self.defaults_file_path) as f:
+                        data = json.load(f)
+                        status["saved_at"] = data.get("saved_at")
 
-            except Exception as e:
-                logger.error(f"Error getting file status: {e}")
-                status["using_fallback"] = True
-        else:
-            status["using_fallback"] = True
+                except FileNotFoundError:
+                    # File doesn't exist, status already defaults to using_fallback=True
+                    pass
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON in defaults file during status check: {e}")
+                    status["file_exists"] = True
+                    status["using_fallback"] = True
+
+        except Exception as e:
+            logger.error(f"Error getting file status: {e}")
 
         return status
