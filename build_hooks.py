@@ -44,6 +44,7 @@ class CustomBuildHook(BuildHookInterface):  # type: ignore[misc]
                 "The web UI will not be available. Install from PyPI for the full webapp."
             )
             webapp_dist.mkdir(parents=True, exist_ok=True)
+            (webapp_dist / "assets").mkdir(exist_ok=True)
             (webapp_dist / "index.html").write_text(
                 "<!DOCTYPE html><html><head><title>Karenina Server</title></head>"
                 "<body><h1>Web UI Not Available</h1>"
