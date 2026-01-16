@@ -21,6 +21,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      - name: Install karenina from GitHub
+        run: uv pip install git+https://github.com/biocypher/karenina.git@dev --system
+
       - name: Install dependencies
         run: uv sync --dev --no-sources
 
