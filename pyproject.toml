@@ -83,6 +83,15 @@ filterwarnings = [
     "ignore::PendingDeprecationWarning",
 ]
 addopts = "-v --tb=short"
+markers = [
+    "unit: Pure logic tests - no I/O, no external calls",
+    "integration: TestClient, file I/O, threading tests",
+    "e2e: End-to-end workflow tests",
+    "slow: Tests taking > 1 second",
+    "api: API endpoint tests",
+    "service: Service layer tests",
+    "middleware: Middleware tests",
+]
 
 [tool.coverage.run]
 source = ["src/karenina_server"]
