@@ -24,6 +24,9 @@ setup_e2e_fixture_mode()
 
 # FastAPI imports
 try:
+    from collections.abc import AsyncGenerator
+    from contextlib import asynccontextmanager
+
     import uvicorn
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse
@@ -34,6 +37,7 @@ try:
 except ImportError:
     FASTAPI_AVAILABLE = False
     BaseModel = None  # type: ignore[misc,assignment]
+    asynccontextmanager = None  # type: ignore[assignment]
 
 # Import LLM functionality from the karenina package
 try:
@@ -598,8 +602,6 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     if not FASTAPI_AVAILABLE:
         raise RuntimeError("FastAPI is not available. Please install FastAPI dependencies.")
 
-    app = FastAPI(title="Karenina API", description="API for Karenina webapp with LLM integration", version="1.0.0")
-
     # Initialize global services
     global verification_service
     if verification_service is None:
@@ -609,6 +611,62 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
             verification_service = VerificationService()
         except ImportError:
             print("Warning: Verification service not available")
+
+    # Define lifespan context manager for startup and shutdown (conc-001)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
+        """Manage application lifecycle: startup and graceful shutdown.
+
+        This ensures ThreadPoolExecutors in VerificationService and GenerationService
+        are properly shut down, preventing resource leaks and orphaned threads.
+        """
+        import asyncio
+
+        # Startup: Set event loops for progress broadcasters
+        loop = asyncio.get_running_loop()
+
+        if verification_service is not None:
+            verification_service.broadcaster.set_event_loop(loop)
+
+        # Set event loop for generation service broadcaster if it exists
+        generation_svc = None
+        try:
+            from karenina_server.services.generation_service import generation_service
+
+            generation_svc = generation_service
+            if generation_svc is not None:
+                generation_svc.broadcaster.set_event_loop(loop)
+        except ImportError:
+            pass
+
+        print("✓ Application startup complete")
+        yield  # Application runs
+
+        # Shutdown: Gracefully shut down services (conc-001)
+        print("🛑 Application shutdown initiated...")
+
+        # Shut down verification service
+        if verification_service is not None:
+            try:
+                verification_service.shutdown(wait=True, cancel_pending=False)
+            except Exception as e:
+                print(f"Warning: Error shutting down verification service: {e}")
+
+        # Shut down generation service
+        if generation_svc is not None:
+            try:
+                generation_svc.shutdown(wait=True, cancel_pending=False)
+            except Exception as e:
+                print(f"Warning: Error shutting down generation service: {e}")
+
+        print("✓ Application shutdown complete")
+
+    app = FastAPI(
+        title="Karenina API",
+        description="API for Karenina webapp with LLM integration",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
 
     # Register API routes from extracted handlers
     # Add CORS middleware to allow requests from the frontend dev server
@@ -687,26 +745,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(config_router, prefix="/api/config")
     app.include_router(preset_router, prefix="/api")
 
-    # Set up event loop for broadcasters on startup
-    @app.on_event("startup")
-    async def startup_event() -> None:
-        """Initialize event loops for progress broadcasters."""
-        import asyncio
-
-        loop = asyncio.get_running_loop()
-
-        # Set event loop for verification service broadcaster
-        if verification_service is not None:
-            verification_service.broadcaster.set_event_loop(loop)
-
-        # Set event loop for generation service broadcaster if it exists
-        try:
-            from karenina_server.services.generation_service import generation_service
-
-            if generation_service is not None:
-                generation_service.broadcaster.set_event_loop(loop)
-        except ImportError:
-            pass
+    # Note: Event loop setup and shutdown are handled by lifespan context manager (conc-001)
 
     # Serve static files from the webapp dist directory
     dist_dir = webapp_dir / "dist"

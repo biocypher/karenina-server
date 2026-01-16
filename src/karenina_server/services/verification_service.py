@@ -66,7 +66,15 @@ class JobStatus(Enum):
 
 
 class VerificationService:
-    """Service for managing verification jobs."""
+    """Service for managing verification jobs.
+
+    Lock Hierarchy (conc-005):
+        1. _shutdown_lock - Service-level shutdown coordination
+        2. _master_lock - Protects _job_locks dict modification
+        3. _job_locks[job_id] - Per-job state protection
+
+    Always acquire locks in this order to prevent deadlocks.
+    """
 
     def __init__(self, max_workers: int | None = None):
         # Use KARENINA_ASYNC_ENABLED and KARENINA_ASYNC_MAX_WORKERS to control concurrent jobs
@@ -91,6 +99,10 @@ class VerificationService:
         self._job_locks: dict[str, threading.Lock] = {}
         # Master lock for job_locks dict modification
         self._master_lock = threading.Lock()
+        # Shutdown coordination (conc-001)
+        self._shutdown_event = threading.Event()
+        self._shutdown_lock = threading.Lock()
+        self._is_shutdown = False
 
     def _get_job_lock(self, job_id: str) -> threading.Lock:
         """Get or create a lock for a specific job.
@@ -106,6 +118,56 @@ class VerificationService:
         """Remove a job's lock when the job is cleaned up."""
         with self._master_lock:
             self._job_locks.pop(job_id, None)
+
+    def shutdown(self, wait: bool = True, cancel_pending: bool = False) -> None:
+        """Gracefully shut down the verification service (conc-001).
+
+        This method ensures clean shutdown of the ThreadPoolExecutor,
+        preventing resource leaks and orphaned threads.
+
+        Args:
+            wait: If True, block until all running jobs complete.
+                  If False, return immediately after signaling shutdown.
+            cancel_pending: If True, attempt to cancel pending (not yet started) futures.
+                           Running jobs will still complete unless interrupted.
+
+        Thread-safety: This method is thread-safe and idempotent.
+        """
+        with self._shutdown_lock:
+            if self._is_shutdown:
+                logger.debug("VerificationService.shutdown() called but already shut down")
+                return
+
+            logger.info("🛑 VerificationService shutting down...")
+            self._is_shutdown = True
+            self._shutdown_event.set()
+
+            # Optionally cancel pending futures
+            cancelled_count = 0
+            if cancel_pending:
+                for job_id, future in list(self.futures.items()):
+                    if future.cancel():
+                        cancelled_count += 1
+                        # Mark job as cancelled
+                        job = self.jobs.get(job_id)
+                        if job and job.status == "pending":
+                            self._force_status(job_id, JobStatus.CANCELLED)
+                if cancelled_count > 0:
+                    logger.info(f"   Cancelled {cancelled_count} pending jobs")
+
+            # Count in-flight jobs
+            running_jobs = sum(1 for j in self.jobs.values() if j.status == "running")
+            if running_jobs > 0:
+                logger.info(f"   Waiting for {running_jobs} running job(s) to complete...")
+
+        # Shutdown executor (outside lock to avoid blocking other operations)
+        # wait=True ensures running tasks complete; wait=False returns immediately
+        self.executor.shutdown(wait=wait, cancel_futures=cancel_pending)
+        logger.info("✓ VerificationService shutdown complete")
+
+    def is_shutdown(self) -> bool:
+        """Check if the service has been shut down."""
+        return self._is_shutdown
 
     def _get_job_status(self, job_id: str) -> JobStatus | None:
         """Get job status in a thread-safe manner.
@@ -234,6 +296,10 @@ class VerificationService:
         benchmark_name: str | None = None,
     ) -> str:
         """Start a new verification job."""
+        # Check if service is shutting down (conc-001)
+        if self._is_shutdown:
+            raise RuntimeError("VerificationService is shutting down, cannot accept new jobs")
+
         # Opportunistically run cleanup to prevent memory leaks
         self._maybe_cleanup()
 
