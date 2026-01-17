@@ -25,9 +25,54 @@ except ImportError:
     STORAGE_AVAILABLE = False
 
 
-def _serialize_rubric_to_dict(rubric: Any) -> dict[str, Any] | None:
+# Trait keys for consistent iteration over rubric trait types
+TRAIT_KEYS = ("llm_traits", "regex_traits", "callable_traits", "metric_traits")
+
+
+def _serialize_trait(trait: Any) -> dict[str, Any]:
+    """Serialize a single trait to dict format.
+
+    Args:
+        trait: A Pydantic model with model_dump() or already a dict.
+
+    Returns:
+        Dict representation of the trait.
     """
-    Serialize a Rubric object or rubric dict to API-compatible dict format.
+    if hasattr(trait, "model_dump"):
+        return trait.model_dump()  # type: ignore[no-any-return]
+    # trait is already a dict
+    return dict(trait) if not isinstance(trait, dict) else trait
+
+
+def _serialize_traits_from_object(rubric: Any, key: str) -> list[dict[str, Any]]:
+    """Serialize traits from a Rubric object attribute.
+
+    Args:
+        rubric: A Rubric object with trait attributes.
+        key: The trait key (e.g., 'llm_traits').
+
+    Returns:
+        List of serialized trait dicts.
+    """
+    traits = getattr(rubric, key, None) or []
+    return [t.model_dump() for t in traits]
+
+
+def _serialize_traits_from_dict(rubric: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """Serialize traits from a rubric dict.
+
+    Args:
+        rubric: A dict with trait lists.
+        key: The trait key (e.g., 'llm_traits').
+
+    Returns:
+        List of serialized trait dicts.
+    """
+    return [_serialize_trait(t) for t in rubric.get(key, [])]
+
+
+def _serialize_rubric_to_dict(rubric: Any) -> dict[str, Any] | None:
+    """Serialize a Rubric object or rubric dict to API-compatible dict format.
 
     This function handles both Rubric objects and dicts with trait lists,
     converting Pydantic models to dicts using model_dump().
@@ -44,30 +89,18 @@ def _serialize_rubric_to_dict(rubric: Any) -> dict[str, Any] | None:
 
     # Handle Rubric object (has llm_traits, regex_traits, etc. as lists of Pydantic models)
     if hasattr(rubric, "llm_traits"):
-        llm_traits = [t.model_dump() for t in (rubric.llm_traits or [])]
-        regex_traits = [t.model_dump() for t in (rubric.regex_traits or [])]
-        callable_traits = [t.model_dump() for t in (rubric.callable_traits or [])]
-        metric_traits = [t.model_dump() for t in (rubric.metric_traits or [])]
+        result = {key: _serialize_traits_from_object(rubric, key) for key in TRAIT_KEYS}
     # Handle dict with trait object lists (from extract_questions_from_benchmark)
     elif isinstance(rubric, dict):
-        llm_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("llm_traits", [])]
-        regex_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("regex_traits", [])]
-        callable_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("callable_traits", [])]
-        metric_traits = [t.model_dump() if hasattr(t, "model_dump") else t for t in rubric.get("metric_traits", [])]
+        result = {key: _serialize_traits_from_dict(rubric, key) for key in TRAIT_KEYS}
     else:
         return None
 
     # Return None if no traits at all
-    if not (llm_traits or regex_traits or callable_traits or metric_traits):
+    if not any(result.values()):
         return None
 
-    # Return with consistent key names matching Rubric schema
-    return {
-        "llm_traits": llm_traits,
-        "regex_traits": regex_traits,
-        "callable_traits": callable_traits,
-        "metric_traits": metric_traits,
-    }
+    return result
 
 
 def _normalize_creator_name(creator: str | dict[str, Any] | None) -> str:
