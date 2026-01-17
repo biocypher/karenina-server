@@ -173,10 +173,23 @@ def _compute_token_stats(results: list[VerificationResult], question_id: str) ->
 def register_verification_routes(app: FastAPI, verification_service: VerificationService) -> None:
     """Register verification-related routes.
 
+    Registers both v1 routes (verb-based, for backward compatibility) and
+    v2 routes (RESTful noun-based).
+
+    v1 routes (deprecated):
+        - POST /api/start-verification -> POST /api/v2/verifications
+        - GET /api/verification-progress/{job_id} -> GET /api/v2/verifications/{id}/progress
+        - GET /api/verification-results/{job_id} -> GET /api/v2/verifications/{id}/results
+        - POST /api/cancel-verification/{job_id} -> DELETE /api/v2/verifications/{id}
+
     Args:
         app: The FastAPI application instance to register routes on.
         verification_service: The verification service for running verification jobs.
     """
+
+    # =========================================================================
+    # V1 ROUTES (DEPRECATED - kept for backward compatibility)
+    # =========================================================================
 
     @app.get("/api/finished-templates")
     async def get_finished_templates_endpoint() -> dict[str, Any]:
@@ -641,3 +654,119 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error comparing models: {e!s}") from e
+
+    # =========================================================================
+    # V2 ROUTES (RESTful noun-based naming)
+    # =========================================================================
+
+    @app.post("/api/v2/verifications", response_model=StartVerificationResponse)
+    async def create_verification_v2(request: StartVerificationRequest) -> StartVerificationResponse:
+        """Create a new verification job (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/start-verification.
+        Creates a new verification resource and returns its job_id.
+
+        Args:
+            request: Typed request containing config, templates, and optional auto-save settings.
+
+        Returns:
+            StartVerificationResponse with job_id, run_name, and status.
+        """
+        return await start_verification_endpoint(request)
+
+    @app.get("/api/v2/verifications/{verification_id}/progress")
+    async def get_verification_progress_v2(verification_id: str) -> dict[str, Any]:
+        """Get verification progress (RESTful v2 endpoint).
+
+        This is the RESTful alternative to GET /api/verification-progress/{job_id}.
+
+        Args:
+            verification_id: The verification job ID.
+
+        Returns:
+            Progress dict with status, percentage, processed count, etc.
+        """
+        return await get_verification_progress(verification_id)
+
+    @app.get("/api/v2/verifications/{verification_id}/results")
+    async def get_verification_results_v2(verification_id: str) -> dict[str, Any]:
+        """Get verification results (RESTful v2 endpoint).
+
+        This is the RESTful alternative to GET /api/verification-results/{job_id}.
+
+        Args:
+            verification_id: The verification job ID.
+
+        Returns:
+            Results dict with verification results.
+        """
+        return await get_verification_results(verification_id)
+
+    @app.delete("/api/v2/verifications/{verification_id}")
+    async def cancel_verification_v2(verification_id: str) -> dict[str, Any]:
+        """Cancel a verification job (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/cancel-verification/{job_id}.
+        Uses DELETE method to cancel/remove a running verification.
+
+        Args:
+            verification_id: The verification job ID.
+
+        Returns:
+            Success message dict.
+        """
+        return await cancel_verification_endpoint(verification_id)
+
+    @app.get("/api/v2/verifications/{verification_id}/export")
+    async def export_verification_v2(verification_id: str, fmt: str = "json") -> FileResponse:
+        """Export verification results (RESTful v2 endpoint).
+
+        This is the RESTful alternative to GET /api/export-verification/{job_id}.
+
+        Args:
+            verification_id: The verification job ID.
+            fmt: Export format ('json' or 'csv').
+
+        Returns:
+            FileResponse with exported results.
+        """
+        return await export_verification_endpoint(verification_id, fmt)
+
+    @app.get("/api/v2/verifications/results")
+    async def get_all_verification_results_v2() -> dict[str, Any]:
+        """Get all historical verification results (RESTful v2 endpoint).
+
+        This is the RESTful alternative to GET /api/all-verification-results.
+
+        Returns:
+            Dict with all historical results.
+        """
+        return await get_all_verification_results()
+
+    @app.post("/api/v2/verifications/summary")
+    async def compute_summary_v2(request: dict[str, Any]) -> dict[str, Any]:
+        """Compute summary statistics (RESTful v2 endpoint).
+
+        This is equivalent to POST /api/verification/summary (already noun-based).
+
+        Args:
+            request: Dict with results and optional run_name filter.
+
+        Returns:
+            Summary statistics dict.
+        """
+        return await compute_summary_endpoint(request)
+
+    @app.post("/api/v2/verifications/compare")
+    async def compare_models_v2(request: dict[str, Any]) -> dict[str, Any]:
+        """Compare multiple models (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/verification/compare-models.
+
+        Args:
+            request: Dict with results, models to compare, and parsing_model filter.
+
+        Returns:
+            Comparison data with model summaries and heatmap data.
+        """
+        return await compare_models_endpoint(request)
