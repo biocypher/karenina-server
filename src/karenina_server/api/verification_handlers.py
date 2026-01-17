@@ -253,7 +253,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
     async def export_verification_endpoint(job_id: str, fmt: str = "json") -> FileResponse:
         """Export verification results."""
         try:
-            from karenina.benchmark.exporter import (
+            from karenina.benchmark.verification.results_exporter import (
                 create_export_filename,
                 export_verification_results_csv,
                 export_verification_results_json,
