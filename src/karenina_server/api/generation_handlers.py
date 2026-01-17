@@ -18,7 +18,19 @@ except ImportError:
 def register_generation_routes(
     app: Any, TemplateGenerationRequest: Any, TemplateGenerationResponse: Any, TemplateGenerationStatusResponse: Any
 ) -> None:
-    """Register template generation-related routes."""
+    """Register template generation-related routes.
+
+    V1 Routes (legacy, maintained for backward compatibility):
+        POST /api/generate-answer-templates - Start template generation
+        GET /api/generation-progress/{job_id} - Get generation progress
+        POST /api/cancel-generation/{job_id} - Cancel generation job
+        WS /ws/generation-progress/{job_id} - WebSocket for real-time progress
+
+    V2 Routes (RESTful, noun-based naming):
+        POST /api/v2/templates/generation - Start template generation
+        GET /api/v2/templates/generation/{id}/progress - Get generation progress
+        DELETE /api/v2/templates/generation/{id} - Cancel generation job
+    """
 
     @app.post("/api/generate-answer-templates", response_model=TemplateGenerationResponse)  # type: ignore[misc]
     async def generate_answer_templates_endpoint(request: TemplateGenerationRequest) -> TemplateGenerationResponse:
@@ -177,3 +189,35 @@ def register_generation_routes(
                     cleanup_done.set()
                 except Exception as e:
                     logger.warning("Error during WebSocket cleanup for job_id=%s: %s", job_id, e)
+
+    # =========================================================================
+    # V2 Routes - RESTful, noun-based naming
+    # =========================================================================
+
+    @app.post("/api/v2/templates/generation", response_model=TemplateGenerationResponse)  # type: ignore[misc]
+    async def v2_start_generation_endpoint(request: TemplateGenerationRequest) -> TemplateGenerationResponse:
+        """V2: Start answer template generation for a set of questions.
+
+        RESTful endpoint for starting template generation.
+        Delegates to the v1 handler for consistent behavior.
+        """
+        return await generate_answer_templates_endpoint(request)
+
+    @app.get("/api/v2/templates/generation/{generation_id}/progress")  # type: ignore[misc]
+    async def v2_get_generation_progress(generation_id: str) -> TemplateGenerationStatusResponse:
+        """V2: Get the progress of a template generation job.
+
+        RESTful endpoint using noun-based naming.
+        Delegates to the v1 handler for consistent behavior.
+        """
+        return await get_generation_progress(generation_id)
+
+    @app.delete("/api/v2/templates/generation/{generation_id}")  # type: ignore[misc]
+    async def v2_cancel_generation_endpoint(generation_id: str) -> dict[str, str]:
+        """V2: Cancel a template generation job.
+
+        RESTful endpoint using DELETE method for resource cancellation.
+        Delegates to the v1 handler for consistent behavior.
+        """
+        result: dict[str, str] = await cancel_generation_endpoint(generation_id)
+        return result
