@@ -13,6 +13,10 @@ from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR
 from ..schemas.verification import (
+    CompareModelsRequest,
+    CompareModelsResponse,
+    ComputeSummaryRequest,
+    ComputeSummaryResponse,
     StartVerificationRequest,
     StartVerificationResponse,
 )
@@ -464,24 +468,22 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}") from e
 
-    @app.post("/api/verification/summary")
-    async def compute_summary_endpoint(request: dict[str, Any]) -> dict[str, Any]:
-        """
-        Compute summary statistics for verification results.
+    @app.post("/api/verification/summary", response_model=ComputeSummaryResponse)
+    async def compute_summary_endpoint(request: ComputeSummaryRequest) -> ComputeSummaryResponse:
+        """Compute summary statistics for verification results.
 
-        Request body:
-            - results: Dict of verification results (result_id -> VerificationResult)
-            - run_name: Optional run name to filter by (null for all results)
+        Args:
+            request: Typed request with results dict and optional run_name filter.
 
         Returns:
-            Dictionary with summary statistics from VerificationResultSet.get_summary()
+            ComputeSummaryResponse with summary statistics from VerificationResultSet.get_summary().
         """
         try:
             from karenina.schemas.workflow import VerificationResult, VerificationResultSet
 
-            # Parse request
-            results_dict = request.get("results", {})
-            run_name_filter = request.get("run_name")
+            # Use typed access instead of dict.get()
+            results_dict = request.results
+            run_name_filter = request.run_name
 
             # Convert dict to list of VerificationResult objects
             results_list = []
@@ -505,35 +507,30 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             result_set = VerificationResultSet(results=results_list)
             summary: dict[str, Any] = result_set.get_summary()
 
-            return summary
+            return ComputeSummaryResponse(success=True, summary=summary)
 
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error computing summary: {e!s}") from e
 
-    @app.post("/api/verification/compare-models")
-    async def compare_models_endpoint(request: dict[str, Any]) -> dict[str, Any]:
-        """
-        Compare multiple models with per-model summaries and heatmap data.
+    @app.post("/api/verification/compare-models", response_model=CompareModelsResponse)
+    async def compare_models_endpoint(request: CompareModelsRequest) -> CompareModelsResponse:
+        """Compare multiple models with per-model summaries and heatmap data.
 
-        Request body:
-            - results: Dict of verification results (result_id -> VerificationResult)
-            - models: List of model configs to compare [{answering_model, mcp_config}]
-            - parsing_model: Parsing model to filter by (same judge for fair comparison)
-            - replicate: Optional replicate number to filter by (for per-replicate comparison)
+        Args:
+            request: Typed request with results, models to compare, and parsing_model filter.
 
         Returns:
-            - model_summaries: Dict mapping model key to summary stats
-            - heatmap_data: List of questions with results by model
+            CompareModelsResponse with model_summaries, heatmap_data, and question_token_data.
         """
         try:
             from karenina.schemas.workflow import VerificationResult, VerificationResultSet
 
-            # Parse request
-            results_dict = request.get("results", {})
-            models_to_compare = request.get("models", [])
-            parsing_model_filter = request.get("parsing_model")
+            # Use typed access instead of dict.get()
+            results_dict = request.results
+            models_to_compare = request.models
+            parsing_model_filter = request.parsing_model
 
             if not models_to_compare:
                 raise HTTPException(status_code=400, detail="At least one model must be specified")
@@ -644,11 +641,12 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
                 if question_data["models"]:
                     question_token_data.append(question_data)
 
-            return {
-                "model_summaries": model_summaries,
-                "heatmap_data": heatmap_data,
-                "question_token_data": question_token_data,
-            }
+            return CompareModelsResponse(
+                success=True,
+                model_summaries=model_summaries,
+                heatmap_data=heatmap_data,
+                question_token_data=question_token_data,
+            )
 
         except HTTPException:
             raise
@@ -743,30 +741,30 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         """
         return await get_all_verification_results()
 
-    @app.post("/api/v2/verifications/summary")
-    async def compute_summary_v2(request: dict[str, Any]) -> dict[str, Any]:
+    @app.post("/api/v2/verifications/summary", response_model=ComputeSummaryResponse)
+    async def compute_summary_v2(request: ComputeSummaryRequest) -> ComputeSummaryResponse:
         """Compute summary statistics (RESTful v2 endpoint).
 
         This is equivalent to POST /api/verification/summary (already noun-based).
 
         Args:
-            request: Dict with results and optional run_name filter.
+            request: Typed request with results and optional run_name filter.
 
         Returns:
-            Summary statistics dict.
+            ComputeSummaryResponse with summary statistics.
         """
         return await compute_summary_endpoint(request)
 
-    @app.post("/api/v2/verifications/compare")
-    async def compare_models_v2(request: dict[str, Any]) -> dict[str, Any]:
+    @app.post("/api/v2/verifications/compare", response_model=CompareModelsResponse)
+    async def compare_models_v2(request: CompareModelsRequest) -> CompareModelsResponse:
         """Compare multiple models (RESTful v2 endpoint).
 
         This is the RESTful alternative to POST /api/verification/compare-models.
 
         Args:
-            request: Dict with results, models to compare, and parsing_model filter.
+            request: Typed request with results, models to compare, and parsing_model filter.
 
         Returns:
-            Comparison data with model summaries and heatmap data.
+            CompareModelsResponse with model summaries, heatmap data, and token data.
         """
         return await compare_models_endpoint(request)

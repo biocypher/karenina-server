@@ -64,14 +64,12 @@ class ComputeSummaryRequest(BaseModel):
 class ComputeSummaryResponse(BaseModel):
     """Response containing summary statistics.
 
-    Note: The actual summary fields are dynamic and returned directly
-    from VerificationResultSet.get_summary(). This response wraps the
-    summary with envelope fields.
+    Wraps the dynamic summary from VerificationResultSet.get_summary() with envelope fields.
     """
 
     success: bool = Field(default=True, description="Whether the request succeeded")
     error: str | None = Field(default=None, description="Error message if request failed")
-    # Summary fields are included dynamically
+    summary: dict[str, Any] = Field(description="Summary statistics from VerificationResultSet.get_summary()")
 
 
 class CompareModelsRequest(BaseModel):
