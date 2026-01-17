@@ -1,11 +1,15 @@
 """Benchmark verification API handlers."""
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 def register_verification_routes(app: Any, verification_service: Any) -> None:
@@ -38,9 +42,14 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             storage_url = request.get("storage_url")  # Optional database URL for auto-save
             benchmark_name = request.get("benchmark_name")  # Optional benchmark name for auto-save
 
-            # DEBUG: Log what backend receives
-            print("🔍 Backend: Received verification request")
-            print(f"  Rubric enabled in config? {config_data.get('rubric_enabled', False)}")
+            # Log verification request details for debugging
+            logger.debug(
+                "Received verification request",
+                extra={
+                    "rubric_enabled": config_data.get("rubric_enabled", False),
+                    "template_count": len(finished_templates_data),
+                },
+            )
 
             # Check if any templates have metric traits
             templates_with_metric_traits = [
@@ -48,13 +57,18 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                 for t in finished_templates_data
                 if t.get("question_rubric") and t.get("question_rubric", {}).get("metric_traits")
             ]
-            print(
-                f"  Templates with metric traits: {len(templates_with_metric_traits)} / {len(finished_templates_data)}"
+            logger.debug(
+                "Templates with metric traits: %d / %d",
+                len(templates_with_metric_traits),
+                len(finished_templates_data),
             )
 
             if templates_with_metric_traits:
                 sample = templates_with_metric_traits[0]
-                print(f"  Sample metric trait: {json.dumps(sample['question_rubric']['metric_traits'][0], indent=2)}")
+                logger.debug(
+                    "Sample metric trait: %s",
+                    json.dumps(sample["question_rubric"]["metric_traits"][0], indent=2),
+                )
 
             # Create config
             config = VerificationConfig(**config_data)
@@ -94,17 +108,20 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     # Replace dict with Rubric object (direct attribute assignment)
                     template.question_rubric = rubric
 
-            # DEBUG: Log parsed templates
+            # Log parsed templates for debugging
             templates_with_metric_traits_parsed = [
                 t
                 for t in finished_templates
                 if t.question_rubric and hasattr(t.question_rubric, "metric_traits") and t.question_rubric.metric_traits
             ]
-            print(f"  Parsed templates with metric traits: {len(templates_with_metric_traits_parsed)}")
+            logger.debug("Parsed templates with metric traits: %d", len(templates_with_metric_traits_parsed))
             if templates_with_metric_traits_parsed:
                 sample = templates_with_metric_traits_parsed[0]
-                print(f"  Sample parsed metric trait name: {sample.question_rubric.metric_traits[0].name}")
-                print(f"  Sample evaluation_mode: {sample.question_rubric.metric_traits[0].evaluation_mode}")
+                logger.debug(
+                    "Sample parsed metric trait: name=%s, evaluation_mode=%s",
+                    sample.question_rubric.metric_traits[0].name,
+                    sample.question_rubric.metric_traits[0].evaluation_mode,
+                )
 
             # Validate rubric availability if rubric evaluation is enabled
             if getattr(config, "rubric_enabled", False):
@@ -326,7 +343,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     if run_name_filter is None or result.metadata.run_name == run_name_filter:
                         results_list.append(result)
                 except Exception as e:
-                    print(f"Warning: Failed to parse result {result_id}: {e}")
+                    logger.warning("Failed to parse result %s: %s", result_id, e)
                     continue
 
             if not results_list:
@@ -385,7 +402,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     all_results.append(result)
 
                 except Exception as e:
-                    print(f"Warning: Failed to parse result {result_id}: {e}")
+                    logger.warning("Failed to parse result %s: %s", result_id, e)
                     continue
 
             if not all_results:
