@@ -12,6 +12,10 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR
+from ..schemas.verification import (
+    StartVerificationRequest,
+    StartVerificationResponse,
+)
 from ..utils.attr_utils import get_attr_safe, has_attr_truthy
 from ..utils.model_identifier import ModelIdentifier
 from ..utils.rubric_utils import build_rubric_from_dict
@@ -185,54 +189,52 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
 
     @app.post("/api/start-verification")
-    async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
-        """Start verification job."""
+    async def start_verification_endpoint(request: StartVerificationRequest) -> StartVerificationResponse:
+        """Start verification job.
+
+        Args:
+            request: Typed request containing config, templates, and optional auto-save settings.
+
+        Returns:
+            StartVerificationResponse with job_id, run_name, and status.
+        """
         try:
             import json
 
             from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
 
-            # Parse request
-            config_data = request.get("config", {})
-            question_ids = request.get("question_ids")
-            finished_templates_data = request.get("finished_templates", [])
-            run_name = request.get("run_name")  # Optional user-defined run name
-            storage_url = request.get("storage_url")  # Optional database URL for auto-save
-            benchmark_name = request.get("benchmark_name")  # Optional benchmark name for auto-save
-
             # Log verification request details for debugging
             logger.debug(
                 "Received verification request",
                 extra={
-                    "rubric_enabled": config_data.get("rubric_enabled", False),
-                    "template_count": len(finished_templates_data),
+                    "rubric_enabled": request.config.get("rubric_enabled", False),
+                    "template_count": len(request.finished_templates),
                 },
             )
 
             # Check if any templates have metric traits
             templates_with_metric_traits = [
-                t
-                for t in finished_templates_data
-                if t.get("question_rubric") and t.get("question_rubric", {}).get("metric_traits")
+                t for t in request.finished_templates if t.question_rubric and t.question_rubric.get("metric_traits")
             ]
             logger.debug(
                 "Templates with metric traits: %d / %d",
                 len(templates_with_metric_traits),
-                len(finished_templates_data),
+                len(request.finished_templates),
             )
 
             if templates_with_metric_traits:
                 sample = templates_with_metric_traits[0]
                 logger.debug(
                     "Sample metric trait: %s",
-                    json.dumps(sample["question_rubric"]["metric_traits"][0], indent=2),
+                    json.dumps(sample.question_rubric["metric_traits"][0], indent=2),  # type: ignore[index]
                 )
 
-            # Create config
-            config = VerificationConfig(**config_data)
+            # Create config from typed request
+            config = VerificationConfig(**request.config)
 
             # Create finished templates (needed for rubric validation)
-            finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
+            # Convert from FinishedTemplatePayload to FinishedTemplate
+            finished_templates = [FinishedTemplate(**template.model_dump()) for template in request.finished_templates]
 
             # Convert question_rubric dicts to Rubric objects using shared helper
             for template in finished_templates:
@@ -247,11 +249,11 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             ]
             logger.debug("Parsed templates with metric traits: %d", len(templates_with_metric_traits_parsed))
             if templates_with_metric_traits_parsed:
-                sample = templates_with_metric_traits_parsed[0]
+                sample_parsed = templates_with_metric_traits_parsed[0]
                 logger.debug(
                     "Sample parsed metric trait: name=%s, evaluation_mode=%s",
-                    sample.question_rubric.metric_traits[0].name,
-                    sample.question_rubric.metric_traits[0].evaluation_mode,
+                    sample_parsed.question_rubric.metric_traits[0].name,
+                    sample_parsed.question_rubric.metric_traits[0].evaluation_mode,
                 )
 
             # Validate rubric availability if rubric evaluation is enabled
@@ -271,23 +273,26 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             job_id = verification_service.start_verification(
                 finished_templates=finished_templates,
                 config=config,
-                question_ids=question_ids,
-                run_name=run_name,
-                storage_url=storage_url,  # Pass storage URL for auto-save
-                benchmark_name=benchmark_name,  # Pass benchmark name for auto-save
+                question_ids=request.question_ids,
+                run_name=request.run_name,
+                storage_url=request.storage_url,
+                benchmark_name=request.benchmark_name,
             )
 
             # Get the job to return the actual run name (auto-generated if not provided)
             job_status = verification_service.get_job_status(job_id)
-            actual_run_name = job_status.get("run_name", run_name) if job_status else run_name
+            actual_run_name = job_status.get("run_name", request.run_name) if job_status else request.run_name
 
-            return {
-                "job_id": job_id,
-                "run_name": actual_run_name,
-                "status": "started",
-                "message": f"Verification '{actual_run_name}' started for {len(finished_templates)} templates",
-            }
+            return StartVerificationResponse(
+                success=True,
+                job_id=job_id,
+                run_name=actual_run_name or "",
+                status="started",
+                message=f"Verification '{actual_run_name}' started for {len(finished_templates)} templates",
+            )
 
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
