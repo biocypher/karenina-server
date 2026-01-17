@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR
 from ..utils.attr_utils import get_attr_safe, has_attr_truthy
+from ..utils.model_identifier import ModelIdentifier
 from ..utils.rubric_utils import build_rubric_from_dict
 
 if TYPE_CHECKING:
@@ -538,53 +539,33 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             if not all_results:
                 raise HTTPException(status_code=400, detail="No valid results found")
 
-            # Group results by model
-            model_results = {}
+            # Group results by model using ModelIdentifier for type-safe keys
+            model_results: dict[ModelIdentifier, list[Any]] = {}
 
             for model_config in models_to_compare:
-                answering_model = model_config.get("answering_model")
-                mcp_config_str = str(model_config.get("mcp_config", "[]"))  # JSON string from frontend
-                model_key = f"{answering_model}|{mcp_config_str}"
-
-                # Parse expected MCP servers from config
-                import json
-
-                try:
-                    expected_mcp_servers = json.loads(mcp_config_str)
-                    if not isinstance(expected_mcp_servers, list):
-                        expected_mcp_servers = []
-                except Exception:
-                    expected_mcp_servers = []
-
-                # Sort for consistent comparison
-                expected_mcp_servers_sorted = sorted(expected_mcp_servers)
+                model_id = ModelIdentifier.from_config(model_config)
 
                 # Filter results for this model
-                filtered = []
-                for result in all_results:
-                    if result.metadata.answering_model == answering_model:
-                        # Get MCP servers from result
-                        result_mcp_servers = get_attr_safe(result.template, "answering_mcp_servers") or []
-
-                        # Sort for comparison
-                        result_mcp_servers_sorted = sorted(result_mcp_servers)
-
-                        # Match if MCP servers are the same
-                        if result_mcp_servers_sorted == expected_mcp_servers_sorted:
-                            filtered.append(result)
+                filtered = [
+                    result
+                    for result in all_results
+                    if result.metadata.answering_model == model_id.answering_model
+                    and model_id.matches_servers(get_attr_safe(result.template, "answering_mcp_servers") or [])
+                ]
 
                 if filtered:
-                    model_results[model_key] = filtered
+                    model_results[model_id] = filtered
 
             if not model_results:
                 raise HTTPException(status_code=400, detail="No results found for specified models")
 
             # Compute per-model summaries using all replicates
+            # Use display_name as string key for JSON serialization
             model_summaries = {}
-            for model_key, results_list in model_results.items():
+            for model_id, results_list in model_results.items():
                 result_set = VerificationResultSet(results=results_list)
                 summary = result_set.get_summary()
-                model_summaries[model_key] = summary
+                model_summaries[model_id.display_name] = summary
 
             # Generate heatmap data (question x model matrix) with all replicates
             # Collect all unique questions with their keywords
@@ -606,16 +587,16 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
                 }
 
                 # For each model, find all replicates for this question
-                for model_key, results_list in model_results.items():
+                for model_id, results_list in model_results.items():
                     matching_results = [r for r in results_list if r.metadata.question_id == question_id]
 
                     if matching_results:
                         # Deduplicate and build cell data using helper functions
                         deduplicated_results = _deduplicate_results_by_replicate(matching_results)
                         replicates_data = [_build_heatmap_cell(r) for r in deduplicated_results]
-                        question_row["results_by_model"][model_key] = {"replicates": replicates_data}
+                        question_row["results_by_model"][model_id.display_name] = {"replicates": replicates_data}
                     else:
-                        question_row["results_by_model"][model_key] = {"replicates": []}
+                        question_row["results_by_model"][model_id.display_name] = {"replicates": []}
 
                 heatmap_data.append(question_row)
 
@@ -628,15 +609,13 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
                     "models": [],
                 }
 
-                for model_key, results_list in model_results.items():
+                for model_id, results_list in model_results.items():
                     stats = _compute_token_stats(results_list, question_id)
                     if stats["input_median"] > 0 or stats["output_median"] > 0:
-                        parts = model_key.split("|")
-                        model_display_name = f"{parts[0]} (MCP: {parts[1]})" if len(parts) >= 2 else parts[0]
                         question_data["models"].append(
                             {
-                                "model_key": model_key,
-                                "model_display_name": model_display_name,
+                                "model_key": model_id.display_name,
+                                "model_display_name": model_id.display_name,
                                 "input_tokens_median": stats["input_median"],
                                 "input_tokens_std": stats["input_std"],
                                 "output_tokens_median": stats["output_median"],
