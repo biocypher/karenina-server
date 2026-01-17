@@ -58,7 +58,11 @@ def register_generation_routes(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             # Format response to match frontend expectations
+            # Set success=False if there's an error or status is 'failed'
+            error_message = progress.get("error_message")
+            is_success = error_message is None and progress["status"] != "failed"
             response = TemplateGenerationStatusResponse(
+                success=is_success,
                 job_id=job_id,
                 status=progress["status"],
                 percentage=progress.get("percentage", 0.0),
@@ -67,7 +71,7 @@ def register_generation_routes(
                 total_count=progress.get("total_questions", 0),
                 duration_seconds=progress.get("duration_seconds"),
                 last_task_duration=progress.get("last_task_duration"),
-                error=progress.get("error_message"),
+                error=error_message,
                 in_progress_questions=progress.get("in_progress_questions", []),
             )
 

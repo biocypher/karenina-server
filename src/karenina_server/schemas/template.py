@@ -35,6 +35,7 @@ class TemplateGenerationResponse(BaseModel):
 class TemplateGenerationStatusResponse(BaseModel):
     """Response for template generation status."""
 
+    success: bool = True  # Standardized field for response envelope consistency
     job_id: str
     status: str
     percentage: float
