@@ -145,19 +145,19 @@ def _compute_token_stats(results: list[VerificationResult], question_id: str) ->
     """
     import numpy as np
 
-    matching = [r for r in results if r.metadata.question_id == question_id]
+    matching = [result for result in results if result.metadata.question_id == question_id]
 
     input_tokens = []
     output_tokens = []
 
-    for r in matching:
+    for result in matching:
         if (
-            r.template
-            and hasattr(r.template, "usage_metadata")
-            and r.template.usage_metadata
-            and "total" in r.template.usage_metadata
+            result.template
+            and hasattr(result.template, "usage_metadata")
+            and result.template.usage_metadata
+            and "total" in result.template.usage_metadata
         ):
-            total_usage = r.template.usage_metadata["total"]
+            total_usage = result.template.usage_metadata["total"]
             inp = total_usage.get("input_tokens", 0)
             out = total_usage.get("output_tokens", 0)
             if inp is not None and isinstance(inp, int | float) and inp > 0:
@@ -571,19 +571,19 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
 
                 # Filter results for this model
                 filtered = []
-                for r in all_results:
-                    if r.metadata.answering_model == answering_model:
+                for result in all_results:
+                    if result.metadata.answering_model == answering_model:
                         # Get MCP servers from result
                         result_mcp_servers: list[str] = []
-                        if r.template and hasattr(r.template, "answering_mcp_servers"):
-                            result_mcp_servers = r.template.answering_mcp_servers or []
+                        if result.template and hasattr(result.template, "answering_mcp_servers"):
+                            result_mcp_servers = result.template.answering_mcp_servers or []
 
                         # Sort for comparison
                         result_mcp_servers_sorted = sorted(result_mcp_servers)
 
                         # Match if MCP servers are the same
                         if result_mcp_servers_sorted == expected_mcp_servers_sorted:
-                            filtered.append(r)
+                            filtered.append(result)
 
                 if filtered:
                     model_results[model_key] = filtered
