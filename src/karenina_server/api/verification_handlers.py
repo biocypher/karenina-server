@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR
+from ..utils.attr_utils import get_attr_safe, has_attr_truthy
 from ..utils.rubric_utils import build_rubric_from_dict
 
 if TYPE_CHECKING:
@@ -82,28 +83,23 @@ def _build_heatmap_cell(result: VerificationResult) -> dict[str, Any]:
     }
 
     # Template verification status
-    if result.template and hasattr(result.template, "verify_result"):
-        cell_data["passed"] = result.template.verify_result
+    cell_data["passed"] = get_attr_safe(result.template, "verify_result")
+    cell_data["abstained"] = get_attr_safe(result.template, "abstention_detected", False)
 
-    if result.template and hasattr(result.template, "abstention_detected"):
-        cell_data["abstained"] = result.template.abstention_detected or False
-
-    if result.template and hasattr(result.template, "sufficiency_detected"):
-        cell_data["insufficient"] = result.template.sufficiency_detected is False
+    sufficiency = get_attr_safe(result.template, "sufficiency_detected")
+    cell_data["insufficient"] = sufficiency is False if sufficiency is not None else False
 
     # Rubric score
-    if result.rubric and hasattr(result.rubric, "overall_score"):
-        cell_data["score"] = result.rubric.overall_score
+    cell_data["score"] = get_attr_safe(result.rubric, "overall_score")
 
     # Execution type
-    has_agent = (
-        result.template and hasattr(result.template, "agent_metrics") and result.template.agent_metrics is not None
-    )
-    cell_data["execution_type"] = "Agent" if has_agent else "Standard"
+    agent_metrics = get_attr_safe(result.template, "agent_metrics")
+    cell_data["execution_type"] = "Agent" if agent_metrics else "Standard"
 
     # Token usage
-    if result.template and hasattr(result.template, "usage_metadata") and result.template.usage_metadata:
-        total_usage = result.template.usage_metadata.get("total", {})
+    usage_metadata = get_attr_safe(result.template, "usage_metadata")
+    if usage_metadata:
+        total_usage = usage_metadata.get("total", {})
         inp = total_usage.get("input_tokens", 0)
         out = total_usage.get("output_tokens", 0)
         cell_data["input_tokens"] = int(inp) if inp is not None and isinstance(inp, int | float) else 0
@@ -113,20 +109,20 @@ def _build_heatmap_cell(result: VerificationResult) -> dict[str, Any]:
         cell_data["output_tokens"] = 0
 
     # Agent iterations
-    if has_agent:
-        cell_data["iterations"] = result.template.agent_metrics.get("iterations", 0)
-    else:
-        cell_data["iterations"] = 0
+    cell_data["iterations"] = agent_metrics.get("iterations", 0) if agent_metrics else 0
 
     # Rubric trait scores for badge overlays
     if result.rubric:
         rubric_scores: dict[str, dict[str, bool | int | float]] = {}
-        if hasattr(result.rubric, "llm_trait_scores") and result.rubric.llm_trait_scores:
-            rubric_scores["llm"] = result.rubric.llm_trait_scores
-        if hasattr(result.rubric, "regex_trait_scores") and result.rubric.regex_trait_scores:
-            rubric_scores["regex"] = result.rubric.regex_trait_scores
-        if hasattr(result.rubric, "callable_trait_scores") and result.rubric.callable_trait_scores:
-            rubric_scores["callable"] = result.rubric.callable_trait_scores
+        llm_scores = get_attr_safe(result.rubric, "llm_trait_scores")
+        if llm_scores:
+            rubric_scores["llm"] = llm_scores
+        regex_scores = get_attr_safe(result.rubric, "regex_trait_scores")
+        if regex_scores:
+            rubric_scores["regex"] = regex_scores
+        callable_scores = get_attr_safe(result.rubric, "callable_trait_scores")
+        if callable_scores:
+            rubric_scores["callable"] = callable_scores
         if rubric_scores:
             cell_data["rubric_scores"] = rubric_scores
 
@@ -151,13 +147,9 @@ def _compute_token_stats(results: list[VerificationResult], question_id: str) ->
     output_tokens = []
 
     for result in matching:
-        if (
-            result.template
-            and hasattr(result.template, "usage_metadata")
-            and result.template.usage_metadata
-            and "total" in result.template.usage_metadata
-        ):
-            total_usage = result.template.usage_metadata["total"]
+        usage_metadata = get_attr_safe(result.template, "usage_metadata")
+        if usage_metadata and "total" in usage_metadata:
+            total_usage = usage_metadata["total"]
             inp = total_usage.get("input_tokens", 0)
             out = total_usage.get("output_tokens", 0)
             if inp is not None and isinstance(inp, int | float) and inp > 0:
@@ -250,9 +242,7 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
 
             # Log parsed templates for debugging
             templates_with_metric_traits_parsed = [
-                t
-                for t in finished_templates
-                if t.question_rubric and hasattr(t.question_rubric, "metric_traits") and t.question_rubric.metric_traits
+                t for t in finished_templates if has_attr_truthy(t.question_rubric, "metric_traits")
             ]
             logger.debug("Parsed templates with metric traits: %d", len(templates_with_metric_traits_parsed))
             if templates_with_metric_traits_parsed:
@@ -574,9 +564,7 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
                 for result in all_results:
                     if result.metadata.answering_model == answering_model:
                         # Get MCP servers from result
-                        result_mcp_servers: list[str] = []
-                        if result.template and hasattr(result.template, "answering_mcp_servers"):
-                            result_mcp_servers = result.template.answering_mcp_servers or []
+                        result_mcp_servers = get_attr_safe(result.template, "answering_mcp_servers") or []
 
                         # Sort for comparison
                         result_mcp_servers_sorted = sorted(result_mcp_servers)
