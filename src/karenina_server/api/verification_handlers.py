@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
+from ..constants import TEMP_EXPORT_DIR
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -301,7 +303,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             filename = create_export_filename(job, fmt.lower())
 
             # Create temporary file for download
-            temp_dir = Path(tempfile.gettempdir()) / "otarbench_exports"
+            temp_dir = Path(tempfile.gettempdir()) / TEMP_EXPORT_DIR
             temp_dir.mkdir(exist_ok=True)
 
             temp_file = temp_dir / filename
