@@ -934,3 +934,253 @@ def register_database_routes(
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading verification results: {e!s}") from e
+
+    # =========================================================================
+    # V2 RESTful Routes
+    # =========================================================================
+    # These routes follow REST conventions using noun-based resource names.
+    # They delegate to the existing v1 handlers for implementation consistency.
+    #
+    # V1 -> V2 Route Mapping:
+    #   POST /api/database/connect -> POST /api/v2/databases/connections
+    #   GET /api/database/benchmarks -> GET /api/v2/benchmarks
+    #   POST /api/database/load-benchmark -> GET /api/v2/benchmarks/{name}
+    #   POST /api/database/create-benchmark -> POST /api/v2/benchmarks
+    #   POST /api/database/save-benchmark -> PUT /api/v2/benchmarks/{name}
+    #   POST /api/database/resolve-duplicates -> POST /api/v2/benchmarks/{name}/duplicates
+    #   POST /api/database/init -> POST /api/v2/databases
+    #   GET /api/database/list-databases -> GET /api/v2/databases
+    #   DELETE /api/database/delete -> DELETE /api/v2/databases
+    #   DELETE /api/database/delete-benchmark -> DELETE /api/v2/benchmarks/{name}
+    #   POST /api/database/import-results -> POST /api/v2/benchmarks/{name}/results
+    #   POST /api/database/verification-runs -> GET /api/v2/verification-runs
+    #   POST /api/database/load-results -> GET /api/v2/verification-results
+    # =========================================================================
+
+    @app.post("/api/v2/databases/connections", response_model=DatabaseConnectResponse)  # type: ignore[misc]
+    async def connect_database_v2(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
+        """Connect to a database (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/connect.
+        Creates a connection resource to verify database connectivity.
+
+        Args:
+            request: Connection request with storage_url and create_if_missing flag.
+
+        Returns:
+            DatabaseConnectResponse with connection status and benchmark count.
+        """
+        return await connect_database_endpoint(request)
+
+    @app.get("/api/v2/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
+    async def list_benchmarks_v2(storage_url: str) -> BenchmarkListResponse:
+        """List all benchmarks (RESTful v2 endpoint).
+
+        This is the RESTful alternative to GET /api/database/benchmarks.
+
+        Args:
+            storage_url: Database connection URL.
+
+        Returns:
+            BenchmarkListResponse with list of benchmarks.
+        """
+        return await list_benchmarks_endpoint(storage_url)
+
+    @app.get("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
+    async def get_benchmark_v2(benchmark_name: str, storage_url: str) -> BenchmarkLoadResponse:
+        """Get a specific benchmark (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/load-benchmark.
+        Uses GET method since it's a read operation.
+
+        Args:
+            benchmark_name: Name of the benchmark to load.
+            storage_url: Database connection URL.
+
+        Returns:
+            BenchmarkLoadResponse with checkpoint data.
+        """
+        # Create request object to call existing handler
+        request = BenchmarkLoadRequest(storage_url=storage_url, benchmark_name=benchmark_name)
+        return await load_benchmark_endpoint(request)
+
+    @app.post("/api/v2/benchmarks", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
+    async def create_benchmark_v2(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
+        """Create a new benchmark (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/create-benchmark.
+
+        Args:
+            request: Create request with name, description, version, and creator.
+
+        Returns:
+            BenchmarkCreateResponse with created benchmark data.
+        """
+        return await create_benchmark_endpoint(request)
+
+    @app.put("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
+    async def update_benchmark_v2(benchmark_name: str, request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
+        """Update/save a benchmark (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/save-benchmark.
+        Uses PUT method since it replaces the benchmark resource.
+
+        Args:
+            benchmark_name: Name of the benchmark to save (from URL path).
+            request: Save request with checkpoint data.
+
+        Returns:
+            BenchmarkSaveResponse with save status.
+        """
+        # Override benchmark_name from URL path for consistency
+        request.benchmark_name = benchmark_name
+        return await save_benchmark_endpoint(request)
+
+    @app.post("/api/v2/benchmarks/{benchmark_name}/duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
+    async def resolve_benchmark_duplicates_v2(
+        benchmark_name: str, request: DuplicateResolutionRequest
+    ) -> DuplicateResolutionResponse:
+        """Resolve duplicate questions in a benchmark (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/resolve-duplicates.
+
+        Args:
+            benchmark_name: Name of the benchmark.
+            request: Resolution request with checkpoint data and resolutions.
+
+        Returns:
+            DuplicateResolutionResponse with resolution counts.
+        """
+        # Override benchmark_name from URL path for consistency
+        request.benchmark_name = benchmark_name
+        return await resolve_duplicates_endpoint(request)
+
+    @app.post("/api/v2/databases")  # type: ignore[misc]
+    async def init_database_v2(request: dict[str, Any]) -> dict[str, Any]:
+        """Initialize a new database (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/init.
+        Creates a new database resource.
+
+        Args:
+            request: Dict with storage_url.
+
+        Returns:
+            Success response with database info.
+        """
+        return await init_database_endpoint(request)  # type: ignore[no-any-return]
+
+    @app.get("/api/v2/databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
+    async def list_databases_v2() -> ListDatabasesResponse:
+        """List all databases (RESTful v2 endpoint).
+
+        This is the RESTful alternative to GET /api/database/list-databases.
+
+        Returns:
+            ListDatabasesResponse with list of database files.
+        """
+        return await list_databases_endpoint()
+
+    @app.delete("/api/v2/databases", status_code=204)  # type: ignore[misc]
+    async def delete_database_v2(request: DeleteDatabaseRequest) -> None:
+        """Delete a database (RESTful v2 endpoint).
+
+        This is the RESTful alternative to DELETE /api/database/delete.
+
+        Args:
+            request: Delete request with storage_url.
+
+        Returns:
+            None (204 No Content).
+        """
+        return await delete_database_endpoint(request)  # type: ignore[no-any-return]
+
+    @app.delete("/api/v2/benchmarks/{benchmark_name}", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
+    async def delete_benchmark_v2(benchmark_name: str, storage_url: str) -> DeleteBenchmarkResponse:
+        """Delete a benchmark (RESTful v2 endpoint).
+
+        This is the RESTful alternative to DELETE /api/database/delete-benchmark.
+
+        Args:
+            benchmark_name: Name of the benchmark to delete.
+            storage_url: Database connection URL.
+
+        Returns:
+            DeleteBenchmarkResponse with deletion counts.
+        """
+        # Create request object to call existing handler
+        request = DeleteBenchmarkRequest(storage_url=storage_url, benchmark_name=benchmark_name)
+        return await delete_benchmark_endpoint(request)
+
+    @app.post("/api/v2/benchmarks/{benchmark_name}/results", response_model=ImportResultsResponse)  # type: ignore[misc]
+    async def import_benchmark_results_v2(benchmark_name: str, request: ImportResultsRequest) -> ImportResultsResponse:
+        """Import verification results for a benchmark (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/import-results.
+
+        Args:
+            benchmark_name: Name of the benchmark.
+            request: Import request with JSON data and run settings.
+
+        Returns:
+            ImportResultsResponse with import counts.
+        """
+        # Override benchmark_name from URL path for consistency
+        request.benchmark_name = benchmark_name
+        return await import_results_endpoint(request)
+
+    @app.get("/api/v2/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
+    async def list_verification_runs_v2(
+        storage_url: str, benchmark_name: str | None = None
+    ) -> ListVerificationRunsResponse:
+        """List verification runs (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/verification-runs.
+        Uses GET method since it's a read operation.
+
+        Args:
+            storage_url: Database connection URL.
+            benchmark_name: Optional benchmark name filter.
+
+        Returns:
+            ListVerificationRunsResponse with list of runs.
+        """
+        # Create request object to call existing handler
+        request = ListVerificationRunsRequest(storage_url=storage_url, benchmark_name=benchmark_name)
+        return await list_verification_runs_endpoint(request)
+
+    @app.get("/api/v2/verification-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
+    async def get_verification_results_v2(
+        storage_url: str,
+        run_id: int | None = None,
+        benchmark_name: str | None = None,
+        question_id: str | None = None,
+        answering_model: str | None = None,
+        limit: int | None = None,
+    ) -> LoadVerificationResultsResponse:
+        """Get verification results (RESTful v2 endpoint).
+
+        This is the RESTful alternative to POST /api/database/load-results.
+        Uses GET method since it's a read operation.
+
+        Args:
+            storage_url: Database connection URL.
+            run_id: Optional run ID filter.
+            benchmark_name: Optional benchmark name filter.
+            question_id: Optional question ID filter.
+            answering_model: Optional model filter.
+            limit: Optional result limit.
+
+        Returns:
+            LoadVerificationResultsResponse with results.
+        """
+        # Create request object to call existing handler
+        request = LoadVerificationResultsRequest(
+            storage_url=storage_url,
+            run_id=run_id,
+            benchmark_name=benchmark_name,
+            question_id=question_id,
+            answering_model=answering_model,
+            limit=limit,
+        )
+        return await load_verification_results_endpoint(request)
