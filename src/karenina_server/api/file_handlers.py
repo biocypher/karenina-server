@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from ..constants import TEMP_EXPORT_DIR, TEMP_UPLOAD_DIR
+
 try:
     from karenina.domain.questions.extractor import extract_and_generate_questions, get_file_preview
 
@@ -87,7 +89,7 @@ def register_file_routes(
             file_id = str(uuid.uuid4())
 
             # Create temporary file
-            temp_dir = Path(tempfile.gettempdir()) / "otarbench_uploads"
+            temp_dir = Path(tempfile.gettempdir()) / TEMP_UPLOAD_DIR
             temp_dir.mkdir(exist_ok=True)
 
             file_extension = Path(file.filename).suffix if file.filename else ""
@@ -189,7 +191,7 @@ def register_file_routes(
             python_content = generate_python_questions_file(questions_data)
 
             # Create temporary file
-            temp_dir = Path(tempfile.gettempdir()) / "otarbench_exports"
+            temp_dir = Path(tempfile.gettempdir()) / TEMP_EXPORT_DIR
             temp_dir.mkdir(exist_ok=True)
 
             export_id = str(uuid.uuid4())

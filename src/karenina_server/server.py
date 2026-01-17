@@ -31,12 +31,10 @@ try:
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel, SecretStr
 
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
-    BaseModel = None  # type: ignore[misc,assignment]
     asynccontextmanager = None  # type: ignore[assignment]
 
 # Import LLM functionality from the karenina package
@@ -56,287 +54,52 @@ except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 
-# Pydantic models for Question Extractor API
-if FASTAPI_AVAILABLE and BaseModel is not None:
-    # Type definitions
-    QuestionData = dict  # Dictionary mapping question IDs to question data
-
-    class FilePreviewResponse(BaseModel):
-        success: bool
-        total_rows: int | None = None
-        columns: list[str] | None = None
-        preview_rows: int | None = None
-        data: list[dict[str, Any]] | None = None
-        error: str | None = None
-
-    class KeywordColumnConfig(BaseModel):
-        column: str
-        separator: str
-
-    class ExtractQuestionsRequest(BaseModel):
-        file_id: str
-        question_column: str
-        answer_column: str
-        sheet_name: str | None = None
-        # Optional metadata column mappings
-        author_name_column: str | None = None
-        author_email_column: str | None = None
-        author_affiliation_column: str | None = None
-        url_column: str | None = None
-        # New format: multiple keyword columns with individual separators
-        keywords_columns: list[dict[str, str]] | None = None
-        # Deprecated: kept for backward compatibility
-        keywords_column: str | None = None
-        keywords_separator: str = ","
-
-    class ExtractQuestionsResponse(BaseModel):
-        success: bool
-        questions_count: int | None = None
-        questions_data: dict[str, Any] | None = None
-        error: str | None = None
-
-    # Template Generation API Models
-    class TemplateGenerationConfig(BaseModel):
-        model_provider: str
-        model_name: str
-        temperature: float = 0.1
-        interface: str = "langchain"
-        endpoint_base_url: str | None = None
-        endpoint_api_key: SecretStr | None = None
-
-    class TemplateGenerationRequest(BaseModel):
-        questions: dict[str, Any]
-        config: TemplateGenerationConfig
-        force_regenerate: bool = False
-
-    class TemplateGenerationResponse(BaseModel):
-        job_id: str
-        status: str
-        message: str
-
-    class TemplateGenerationStatusResponse(BaseModel):
-        job_id: str
-        status: str
-        percentage: float
-        current_question: str
-        processed_count: int
-        total_count: int
-        duration_seconds: float | None = None
-        last_task_duration: float | None = None
-        error: str | None = None
-        result: dict[str, Any] | None = None
-        in_progress_questions: list[str] = []
-
-    # MCP Validation API Models
-    class MCPTool(BaseModel):
-        name: str
-        description: str | None = None
-
-    class MCPValidationRequest(BaseModel):
-        server_name: str
-        server_url: str
-
-    class MCPValidationResponse(BaseModel):
-        success: bool
-        tools: list[MCPTool] | None = None
-        error: str | None = None
-
-    # Database Management API Models
-    class DatabaseConnectRequest(BaseModel):
-        storage_url: str
-        create_if_missing: bool = True
-
-    class DatabaseConnectResponse(BaseModel):
-        success: bool
-        storage_url: str
-        benchmark_count: int
-        message: str
-        error: str | None = None
-
-    class BenchmarkInfo(BaseModel):
-        id: str
-        name: str
-        total_questions: int
-        finished_count: int
-        unfinished_count: int
-        last_modified: str | None = None
-
-    class BenchmarkListResponse(BaseModel):
-        success: bool
-        benchmarks: list[BenchmarkInfo]
-        count: int
-        error: str | None = None
-
-    class BenchmarkLoadRequest(BaseModel):
-        storage_url: str
-        benchmark_name: str
-
-    class BenchmarkLoadResponse(BaseModel):
-        success: bool
-        benchmark_name: str
-        checkpoint_data: dict[str, Any]
-        storage_url: str
-        message: str
-        error: str | None = None
-
-    class BenchmarkCreateRequest(BaseModel):
-        storage_url: str
-        name: str
-        description: str | None = None
-        version: str | None = None
-        creator: str | None = None
-
-    class BenchmarkCreateResponse(BaseModel):
-        success: bool
-        benchmark_name: str
-        checkpoint_data: dict[str, Any]
-        storage_url: str
-        message: str
-        error: str | None = None
-
-    class DuplicateQuestionInfo(BaseModel):
-        question_id: str
-        question_text: str
-        old_version: dict[str, Any]  # Full question data from database
-        new_version: dict[str, Any]  # Full question data from current checkpoint
-
-    class BenchmarkSaveRequest(BaseModel):
-        storage_url: str
-        benchmark_name: str
-        checkpoint_data: dict[str, Any]
-        detect_duplicates: bool = False  # If True, only detect duplicates without saving
-
-    class BenchmarkSaveResponse(BaseModel):
-        success: bool
-        message: str
-        last_modified: str | None = None
-        duplicates: list[DuplicateQuestionInfo] | None = None  # Present when duplicates detected
-        error: str | None = None
-
-    class DuplicateResolutionRequest(BaseModel):
-        storage_url: str
-        benchmark_name: str
-        checkpoint_data: dict[str, Any]
-        resolutions: dict[str, str]  # Map of question_id -> "keep_old" | "keep_new"
-
-    class DuplicateResolutionResponse(BaseModel):
-        success: bool
-        message: str
-        last_modified: str
-        kept_old_count: int
-        kept_new_count: int
-        error: str | None = None
-
-    class DatabaseInfo(BaseModel):
-        name: str
-        path: str
-        size: int | None = None
-
-    class ListDatabasesResponse(BaseModel):
-        success: bool
-        databases: list[DatabaseInfo]
-        db_directory: str
-        is_default_directory: bool
-        error: str | None = None
-
-    class DeleteDatabaseRequest(BaseModel):
-        storage_url: str  # Must be sqlite:/// URL
-
-    class DeleteDatabaseResponse(BaseModel):
-        success: bool
-        message: str
-        error: str | None = None
-
-    class DeleteBenchmarkRequest(BaseModel):
-        storage_url: str
-        benchmark_name: str
-
-    class DeleteBenchmarkResponse(BaseModel):
-        success: bool
-        message: str
-        deleted_questions: int = 0
-        deleted_runs: int = 0
-        error: str | None = None
-
-    # Verification Results Import/Export Models
-    class ImportResultsRequest(BaseModel):
-        storage_url: str
-        json_data: dict[str, Any]
-        benchmark_name: str
-        run_name: str | None = None
-
-    class ImportResultsResponse(BaseModel):
-        success: bool
-        run_id: str
-        imported_count: int
-        message: str
-        error: str | None = None
-
-    class VerificationRunInfo(BaseModel):
-        id: str
-        run_name: str | None
-        benchmark_id: str
-        benchmark_name: str
-        status: str
-        total_questions: int
-        processed_count: int
-        successful_count: int
-        failed_count: int
-        start_time: str | None
-        end_time: str | None
-        created_at: str
-        is_imported: bool = False
-
-    class ListVerificationRunsRequest(BaseModel):
-        storage_url: str
-        benchmark_name: str | None = None
-
-    class ListVerificationRunsResponse(BaseModel):
-        success: bool
-        runs: list[VerificationRunInfo]
-        count: int
-        error: str | None = None
-
-    class LoadVerificationResultsRequest(BaseModel):
-        storage_url: str
-        run_id: str | None = None
-        benchmark_name: str | None = None
-        question_id: str | None = None
-        answering_model: str | None = None
-        limit: int | None = None
-
-    class VerificationResultSummary(BaseModel):
-        id: int
-        run_id: str
-        question_id: str
-        question_text: str
-        answering_model: str
-        parsing_model: str
-        completed_without_errors: bool
-        template_verify_result: Any
-        execution_time: float
-        timestamp: str
-
-    class LoadVerificationResultsResponse(BaseModel):
-        success: bool
-        results: list[VerificationResultSummary]
-        count: int
-        error: str | None = None
-
+# Import Pydantic models from schemas module
+if FASTAPI_AVAILABLE:
+    from karenina_server.schemas import (
+        BenchmarkCreateRequest,
+        BenchmarkCreateResponse,
+        BenchmarkListResponse,
+        BenchmarkLoadRequest,
+        BenchmarkLoadResponse,
+        BenchmarkSaveRequest,
+        BenchmarkSaveResponse,
+        DatabaseConnectRequest,
+        DatabaseConnectResponse,
+        DeleteBenchmarkRequest,
+        DeleteBenchmarkResponse,
+        DeleteDatabaseRequest,
+        DeleteDatabaseResponse,
+        DuplicateResolutionRequest,
+        DuplicateResolutionResponse,
+        ExtractQuestionsRequest,
+        ExtractQuestionsResponse,
+        FilePreviewResponse,
+        ImportResultsRequest,
+        ImportResultsResponse,
+        ListDatabasesResponse,
+        ListVerificationRunsRequest,
+        ListVerificationRunsResponse,
+        LoadVerificationResultsRequest,
+        LoadVerificationResultsResponse,
+        MCPValidationRequest,
+        MCPValidationResponse,
+        TemplateGenerationRequest,
+        TemplateGenerationResponse,
+        TemplateGenerationStatusResponse,
+    )
 else:
-    # Fallback classes for when FastAPI is not available
+    # Fallback for when FastAPI is not available
     FilePreviewResponse = None  # type: ignore[misc,assignment]
     ExtractQuestionsRequest = None  # type: ignore[misc,assignment]
     ExtractQuestionsResponse = None  # type: ignore[misc,assignment]
     TemplateGenerationRequest = None  # type: ignore[misc,assignment]
     TemplateGenerationResponse = None  # type: ignore[misc,assignment]
     TemplateGenerationStatusResponse = None  # type: ignore[misc,assignment]
-    MCPTool = None  # type: ignore[misc,assignment]
     MCPValidationRequest = None  # type: ignore[misc,assignment]
     MCPValidationResponse = None  # type: ignore[misc,assignment]
     DatabaseConnectRequest = None  # type: ignore[misc,assignment]
     DatabaseConnectResponse = None  # type: ignore[misc,assignment]
-    BenchmarkInfo = None  # type: ignore[misc,assignment]
     BenchmarkListResponse = None  # type: ignore[misc,assignment]
     BenchmarkLoadRequest = None  # type: ignore[misc,assignment]
     BenchmarkLoadResponse = None  # type: ignore[misc,assignment]
@@ -344,7 +107,8 @@ else:
     BenchmarkCreateResponse = None  # type: ignore[misc,assignment]
     BenchmarkSaveRequest = None  # type: ignore[misc,assignment]
     BenchmarkSaveResponse = None  # type: ignore[misc,assignment]
-    DatabaseInfo = None  # type: ignore[misc,assignment]
+    DuplicateResolutionRequest = None  # type: ignore[misc,assignment]
+    DuplicateResolutionResponse = None  # type: ignore[misc,assignment]
     ListDatabasesResponse = None  # type: ignore[misc,assignment]
     DeleteDatabaseRequest = None  # type: ignore[misc,assignment]
     DeleteDatabaseResponse = None  # type: ignore[misc,assignment]
@@ -352,11 +116,9 @@ else:
     DeleteBenchmarkResponse = None  # type: ignore[misc,assignment]
     ImportResultsRequest = None  # type: ignore[misc,assignment]
     ImportResultsResponse = None  # type: ignore[misc,assignment]
-    VerificationRunInfo = None  # type: ignore[misc,assignment]
     ListVerificationRunsRequest = None  # type: ignore[misc,assignment]
     ListVerificationRunsResponse = None  # type: ignore[misc,assignment]
     LoadVerificationResultsRequest = None  # type: ignore[misc,assignment]
-    VerificationResultSummary = None  # type: ignore[misc,assignment]
     LoadVerificationResultsResponse = None  # type: ignore[misc,assignment]
 
 

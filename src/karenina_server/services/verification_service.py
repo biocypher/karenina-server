@@ -77,6 +77,13 @@ class VerificationService:
     """
 
     def __init__(self, max_workers: int | None = None):
+        """Initialize the verification service.
+
+        Args:
+            max_workers: Maximum concurrent verification jobs. If None, reads from
+                KARENINA_ASYNC_MAX_WORKERS env var (default 2) when KARENINA_ASYNC_ENABLED
+                is true, otherwise uses 1 for sequential execution.
+        """
         # Use KARENINA_ASYNC_ENABLED and KARENINA_ASYNC_MAX_WORKERS to control concurrent jobs
         if max_workers is None:
             async_enabled = os.getenv("KARENINA_ASYNC_ENABLED", "true").lower() == "true"
@@ -295,7 +302,26 @@ class VerificationService:
         storage_url: str | None = None,
         benchmark_name: str | None = None,
     ) -> str:
-        """Start a new verification job."""
+        """Start a new verification job.
+
+        Submits verification work to the thread pool and returns immediately.
+        Progress can be tracked via get_progress() or WebSocket subscription.
+
+        Args:
+            finished_templates: List of templates to verify.
+            config: Verification configuration (models, replicates, etc.).
+            question_ids: Optional list to filter which questions to verify.
+            run_name: Optional name for this run. Auto-generated if not provided.
+            storage_url: Optional database URL for auto-saving results.
+            benchmark_name: Optional benchmark name for auto-save metadata.
+
+        Returns:
+            Job ID string (UUID) for tracking this verification job.
+
+        Raises:
+            RuntimeError: If the service is shutting down.
+            ValueError: If rubric evaluation is enabled but no rubrics exist.
+        """
         # Check if service is shutting down (conc-001)
         if self._is_shutdown:
             raise RuntimeError("VerificationService is shutting down, cannot accept new jobs")
@@ -363,7 +389,17 @@ class VerificationService:
         return job_id
 
     def get_job_status(self, job_id: str) -> dict[str, Any] | None:
-        """Get the status of a verification job (thread-safe)."""
+        """Get the status of a verification job.
+
+        Thread-safe. Opportunistically runs cleanup to prevent memory leaks.
+
+        Args:
+            job_id: The job identifier returned by start_verification().
+
+        Returns:
+            Dict with job status fields (job_id, status, percentage, etc.),
+            or None if the job doesn't exist.
+        """
         # Opportunistically run cleanup to prevent memory leaks
         self._maybe_cleanup()
 
@@ -377,7 +413,17 @@ class VerificationService:
             return result
 
     def get_job_results(self, job_id: str) -> VerificationResultSet | None:
-        """Get the results of a completed job (thread-safe)."""
+        """Get the results of a completed job.
+
+        Thread-safe. Only returns results for jobs with status 'completed'.
+
+        Args:
+            job_id: The job identifier returned by start_verification().
+
+        Returns:
+            VerificationResultSet containing all results if job is completed,
+            or None if job doesn't exist or is not yet completed.
+        """
         job = self.jobs.get(job_id)
         if not job:
             return None
@@ -389,7 +435,15 @@ class VerificationService:
             return None
 
     def get_all_historical_results(self) -> VerificationResultSet:
-        """Get all historical results across all completed jobs."""
+        """Get all historical results across all completed jobs.
+
+        Combines results from all jobs in the historical cache (up to
+        MAX_HISTORICAL_RESULTS entries, with LRU eviction).
+
+        Returns:
+            VerificationResultSet containing all historical results.
+            May be empty if no jobs have completed.
+        """
         all_results = []
         for result_set in self.historical_results.values():
             all_results.extend(result_set.results)
@@ -663,7 +717,24 @@ class VerificationService:
     # Auto-save is now handled by batch_runner.auto_save_results()
 
     def get_progress(self, job_id: str) -> dict[str, Any] | None:
-        """Get progress information for a job (thread-safe)."""
+        """Get detailed progress information for a job.
+
+        Thread-safe. Returns comprehensive progress data including percentage,
+        duration, current question, and result_set if completed.
+
+        Args:
+            job_id: The job identifier returned by start_verification().
+
+        Returns:
+            Dict with progress fields:
+                - job_id, run_name, status, percentage
+                - total_questions, processed_count, successful_count, failed_count
+                - current_question, in_progress_questions
+                - start_time (unix timestamp), duration_seconds
+                - last_task_duration, error (if any)
+                - result_set (if completed)
+            Returns None if job doesn't exist.
+        """
         job = self.jobs.get(job_id)
         if not job:
             return None
