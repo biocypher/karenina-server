@@ -1,24 +1,31 @@
 """Benchmark verification API handlers."""
 
+from __future__ import annotations
+
 import logging
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR
 from ..utils.rubric_utils import build_rubric_from_dict
+
+if TYPE_CHECKING:
+    from karenina.schemas.workflow import VerificationResult
+
+    from ..services.verification_service import VerificationService
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
 def _deduplicate_results_by_replicate(
-    matching_results: list[Any],
-) -> list[Any]:
+    matching_results: list[VerificationResult],
+) -> list[VerificationResult]:
     """Deduplicate verification results by replicate number, keeping the most relevant.
 
     Groups results by replicate number and selects one result per replicate.
@@ -31,7 +38,7 @@ def _deduplicate_results_by_replicate(
     Returns:
         List of deduplicated results, one per replicate number.
     """
-    replicate_groups: dict[int, list[Any]] = defaultdict(list)
+    replicate_groups: dict[int, list[VerificationResult]] = defaultdict(list)
     for result in matching_results:
         replicate_num = result.metadata.replicate or 0
         replicate_groups[replicate_num].append(result)
@@ -53,7 +60,7 @@ def _deduplicate_results_by_replicate(
     return deduplicated
 
 
-def _build_heatmap_cell(result: Any) -> dict[str, Any]:
+def _build_heatmap_cell(result: VerificationResult) -> dict[str, Any]:
     """Build a heatmap cell data dict from a VerificationResult.
 
     Extracts template pass/fail, rubric score, abstention status, execution
@@ -126,7 +133,7 @@ def _build_heatmap_cell(result: Any) -> dict[str, Any]:
     return cell_data
 
 
-def _compute_token_stats(results: list[Any], question_id: str) -> dict[str, float]:
+def _compute_token_stats(results: list[VerificationResult], question_id: str) -> dict[str, float]:
     """Compute token usage statistics for a question across replicates.
 
     Args:
@@ -166,10 +173,15 @@ def _compute_token_stats(results: list[Any], question_id: str) -> dict[str, floa
     }
 
 
-def register_verification_routes(app: Any, verification_service: Any) -> None:
-    """Register verification-related routes."""
+def register_verification_routes(app: FastAPI, verification_service: VerificationService) -> None:
+    """Register verification-related routes.
 
-    @app.get("/api/finished-templates")  # type: ignore[misc]
+    Args:
+        app: The FastAPI application instance to register routes on.
+        verification_service: The verification service for running verification jobs.
+    """
+
+    @app.get("/api/finished-templates")
     async def get_finished_templates_endpoint() -> dict[str, Any]:
         """Get list of finished templates for verification."""
         try:
@@ -179,7 +191,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
 
-    @app.post("/api/start-verification")  # type: ignore[misc]
+    @app.post("/api/start-verification")
     async def start_verification_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Start verification job."""
         try:
@@ -288,7 +300,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
-    @app.get("/api/verification-progress/{job_id}")  # type: ignore[misc]
+    @app.get("/api/verification-progress/{job_id}")
     async def get_verification_progress(job_id: str) -> dict[str, Any]:
         """Get verification progress."""
         try:
@@ -296,14 +308,14 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             if not progress:
                 raise HTTPException(status_code=404, detail="Job not found")
 
-            return progress  # type: ignore[no-any-return]
+            return progress
 
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
 
-    @app.websocket("/ws/verification-progress/{job_id}")  # type: ignore[misc]
+    @app.websocket("/ws/verification-progress/{job_id}")
     async def websocket_verification_progress(websocket: WebSocket, job_id: str) -> None:
         """WebSocket endpoint for real-time verification progress updates."""
         import asyncio
@@ -354,7 +366,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             # Unsubscribe on disconnect
             await verification_service.broadcaster.unsubscribe(job_id, websocket)
 
-    @app.get("/api/verification-results/{job_id}")  # type: ignore[misc]
+    @app.get("/api/verification-results/{job_id}")
     async def get_verification_results(job_id: str) -> dict[str, Any]:
         """Get verification results."""
         try:
@@ -369,7 +381,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}") from e
 
-    @app.get("/api/all-verification-results")  # type: ignore[misc]
+    @app.get("/api/all-verification-results")
     async def get_all_verification_results() -> dict[str, Any]:
         """Get all historical verification results across all jobs."""
         try:
@@ -379,7 +391,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
 
-    @app.post("/api/cancel-verification/{job_id}")  # type: ignore[misc]
+    @app.post("/api/cancel-verification/{job_id}")
     async def cancel_verification_endpoint(job_id: str) -> dict[str, Any]:
         """Cancel verification job."""
         try:
@@ -394,7 +406,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
 
-    @app.get("/api/export-verification/{job_id}")  # type: ignore[misc]
+    @app.get("/api/export-verification/{job_id}")
     async def export_verification_endpoint(job_id: str, fmt: str = "json") -> FileResponse:
         """Export verification results."""
         try:
@@ -443,7 +455,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}") from e
 
-    @app.post("/api/verification/summary")  # type: ignore[misc]
+    @app.post("/api/verification/summary")
     async def compute_summary_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """
         Compute summary statistics for verification results.
@@ -491,7 +503,7 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error computing summary: {e!s}") from e
 
-    @app.post("/api/verification/compare-models")  # type: ignore[misc]
+    @app.post("/api/verification/compare-models")
     async def compare_models_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """
         Compare multiple models with per-model summaries and heatmap data.
