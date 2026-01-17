@@ -70,15 +70,22 @@ def _serialize_rubric_to_dict(rubric: Any) -> dict[str, Any] | None:
     }
 
 
-def _extract_creator_name(creator: Any) -> str:
-    """
-    Extract creator name from either a string or Person dict.
+def _normalize_creator_name(creator: str | dict[str, Any] | None) -> str:
+    """Normalize creator value to a string, with 'Unknown' as fallback.
+
+    Handles various input formats that may come from JSON-LD metadata:
+    - None -> "Unknown"
+    - String -> returned as-is
+    - Person dict with 'name' key -> extracts the name
+    - Any other format -> "Unknown"
 
     Args:
-        creator: Either a string or a dict with '@type': 'Person' and 'name' key
+        creator: The creator value from metadata, which may be a string,
+            a JSON-LD Person object dict, or None.
 
     Returns:
-        The creator name as a string, or 'Unknown' if unable to extract
+        A normalized string representation of the creator name.
+        Returns "Unknown" if the creator cannot be determined.
     """
     if creator is None:
         return "Unknown"
@@ -363,7 +370,7 @@ def register_database_routes(
                 name=request.benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
-                creator=_extract_creator_name(metadata.get("creator")),
+                creator=_normalize_creator_name(metadata.get("creator")),
             )
 
             # Add questions from checkpoint
@@ -586,7 +593,7 @@ def register_database_routes(
                 name=request.benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
-                creator=_extract_creator_name(metadata.get("creator")),
+                creator=_normalize_creator_name(metadata.get("creator")),
             )
 
             # Track resolution counts
