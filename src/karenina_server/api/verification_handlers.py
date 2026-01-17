@@ -2,6 +2,7 @@
 
 import logging
 import tempfile
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -9,9 +10,160 @@ from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR
+from ..utils.rubric_utils import build_rubric_from_dict
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _deduplicate_results_by_replicate(
+    matching_results: list[Any],
+) -> list[Any]:
+    """Deduplicate verification results by replicate number, keeping the most relevant.
+
+    Groups results by replicate number and selects one result per replicate.
+    Priority: Show errors first (so users can see failures), otherwise
+    show the most recent successful result.
+
+    Args:
+        matching_results: List of VerificationResult objects for a single question/model.
+
+    Returns:
+        List of deduplicated results, one per replicate number.
+    """
+    replicate_groups: dict[int, list[Any]] = defaultdict(list)
+    for result in matching_results:
+        replicate_num = result.metadata.replicate or 0
+        replicate_groups[replicate_num].append(result)
+
+    deduplicated = []
+    for replicate_num in sorted(replicate_groups.keys()):
+        candidates = replicate_groups[replicate_num]
+        failed_results = [r for r in candidates if not r.metadata.completed_without_errors]
+
+        if failed_results:
+            # Show the most recent failure
+            selected = max(failed_results, key=lambda r: r.metadata.timestamp or "")
+        else:
+            # Show the most recent successful attempt
+            selected = max(candidates, key=lambda r: r.metadata.timestamp or "")
+
+        deduplicated.append(selected)
+
+    return deduplicated
+
+
+def _build_heatmap_cell(result: Any) -> dict[str, Any]:
+    """Build a heatmap cell data dict from a VerificationResult.
+
+    Extracts template pass/fail, rubric score, abstention status, execution
+    metadata, token usage, and rubric trait scores for display in heatmap.
+
+    Args:
+        result: A VerificationResult object.
+
+    Returns:
+        Dict with cell data for heatmap display.
+    """
+    cell_data: dict[str, Any] = {
+        "replicate": result.metadata.replicate,
+        "passed": None,
+        "score": None,
+        "abstained": False,
+        "insufficient": False,
+        "error": result.metadata.error is not None,
+    }
+
+    # Template verification status
+    if result.template and hasattr(result.template, "verify_result"):
+        cell_data["passed"] = result.template.verify_result
+
+    if result.template and hasattr(result.template, "abstention_detected"):
+        cell_data["abstained"] = result.template.abstention_detected or False
+
+    if result.template and hasattr(result.template, "sufficiency_detected"):
+        cell_data["insufficient"] = result.template.sufficiency_detected is False
+
+    # Rubric score
+    if result.rubric and hasattr(result.rubric, "overall_score"):
+        cell_data["score"] = result.rubric.overall_score
+
+    # Execution type
+    has_agent = (
+        result.template and hasattr(result.template, "agent_metrics") and result.template.agent_metrics is not None
+    )
+    cell_data["execution_type"] = "Agent" if has_agent else "Standard"
+
+    # Token usage
+    if result.template and hasattr(result.template, "usage_metadata") and result.template.usage_metadata:
+        total_usage = result.template.usage_metadata.get("total", {})
+        inp = total_usage.get("input_tokens", 0)
+        out = total_usage.get("output_tokens", 0)
+        cell_data["input_tokens"] = int(inp) if inp is not None and isinstance(inp, int | float) else 0
+        cell_data["output_tokens"] = int(out) if out is not None and isinstance(out, int | float) else 0
+    else:
+        cell_data["input_tokens"] = 0
+        cell_data["output_tokens"] = 0
+
+    # Agent iterations
+    if has_agent:
+        cell_data["iterations"] = result.template.agent_metrics.get("iterations", 0)
+    else:
+        cell_data["iterations"] = 0
+
+    # Rubric trait scores for badge overlays
+    if result.rubric:
+        rubric_scores: dict[str, dict[str, bool | int | float]] = {}
+        if hasattr(result.rubric, "llm_trait_scores") and result.rubric.llm_trait_scores:
+            rubric_scores["llm"] = result.rubric.llm_trait_scores
+        if hasattr(result.rubric, "regex_trait_scores") and result.rubric.regex_trait_scores:
+            rubric_scores["regex"] = result.rubric.regex_trait_scores
+        if hasattr(result.rubric, "callable_trait_scores") and result.rubric.callable_trait_scores:
+            rubric_scores["callable"] = result.rubric.callable_trait_scores
+        if rubric_scores:
+            cell_data["rubric_scores"] = rubric_scores
+
+    return cell_data
+
+
+def _compute_token_stats(results: list[Any], question_id: str) -> dict[str, float]:
+    """Compute token usage statistics for a question across replicates.
+
+    Args:
+        results: List of VerificationResult objects for a model.
+        question_id: The question ID to filter by.
+
+    Returns:
+        Dict with input/output token median and std dev.
+    """
+    import numpy as np
+
+    matching = [r for r in results if r.metadata.question_id == question_id]
+
+    input_tokens = []
+    output_tokens = []
+
+    for r in matching:
+        if (
+            r.template
+            and hasattr(r.template, "usage_metadata")
+            and r.template.usage_metadata
+            and "total" in r.template.usage_metadata
+        ):
+            total_usage = r.template.usage_metadata["total"]
+            inp = total_usage.get("input_tokens", 0)
+            out = total_usage.get("output_tokens", 0)
+            if inp is not None and isinstance(inp, int | float) and inp > 0:
+                input_tokens.append(inp)
+            if out is not None and isinstance(out, int | float) and out > 0:
+                output_tokens.append(out)
+
+    return {
+        "input_median": float(np.median(input_tokens)) if input_tokens else 0.0,
+        "input_std": float(np.std(input_tokens)) if input_tokens else 0.0,
+        "output_median": float(np.median(output_tokens)) if output_tokens else 0.0,
+        "output_std": float(np.std(output_tokens)) if output_tokens else 0.0,
+    }
 
 
 def register_verification_routes(app: Any, verification_service: Any) -> None:
@@ -33,7 +185,6 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
         try:
             import json
 
-            from karenina.schemas import CallableTrait, LLMRubricTrait, MetricRubricTrait, RegexTrait, Rubric
             from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
 
             # Parse request
@@ -78,37 +229,12 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
             # Create finished templates (needed for rubric validation)
             finished_templates = [FinishedTemplate(**template_data) for template_data in finished_templates_data]
 
-            # Convert question_rubric dicts to Rubric objects
+            # Convert question_rubric dicts to Rubric objects using shared helper
             for template in finished_templates:
                 if template.question_rubric:
-                    rubric_dict = template.question_rubric
-
-                    # Parse LLM traits
-                    llm_traits = [LLMRubricTrait(**trait_data) for trait_data in rubric_dict.get("llm_traits", [])]
-
-                    # Parse regex traits
-                    regex_traits = [RegexTrait(**trait_data) for trait_data in rubric_dict.get("regex_traits", [])]
-
-                    # Parse callable traits
-                    callable_traits = [
-                        CallableTrait(**trait_data) for trait_data in rubric_dict.get("callable_traits", [])
-                    ]
-
-                    # Parse metric traits
-                    metric_traits = [
-                        MetricRubricTrait(**trait_data) for trait_data in rubric_dict.get("metric_traits", [])
-                    ]
-
-                    # Create Rubric object
-                    rubric = Rubric(
-                        llm_traits=llm_traits,
-                        regex_traits=regex_traits,
-                        callable_traits=callable_traits,
-                        metric_traits=metric_traits,
-                    )
-
-                    # Replace dict with Rubric object (direct attribute assignment)
-                    template.question_rubric = rubric
+                    rubric = build_rubric_from_dict(template.question_rubric)
+                    if rubric:
+                        template.question_rubric = rubric
 
             # Log parsed templates for debugging
             templates_with_metric_traits_parsed = [
@@ -484,124 +610,17 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     matching_results = [r for r in results_list if r.metadata.question_id == question_id]
 
                     if matching_results:
-                        # Deduplicate by replicate number (handle retries)
-                        # Group by replicate number and keep only one result per replicate
-                        from collections import defaultdict
-
-                        replicate_groups: dict[int, list[Any]] = defaultdict(list)
-                        for r in matching_results:
-                            replicate_num = r.metadata.replicate or 0
-                            replicate_groups[replicate_num].append(r)
-
-                        # For each replicate group, select the result to display
-                        deduplicated_results = []
-                        for replicate_num in sorted(replicate_groups.keys()):
-                            candidates = replicate_groups[replicate_num]
-
-                            # Priority: Show errors first (so users can see failures),
-                            # otherwise show the most recent successful result
-                            # This ensures errors are visible even if there were subsequent successful retries
-                            failed_results = [r for r in candidates if not r.metadata.completed_without_errors]
-
-                            if failed_results:
-                                # If there are any failed attempts, show the most recent failure
-                                selected = max(failed_results, key=lambda r: r.metadata.timestamp or "")
-                            else:
-                                # Otherwise, show the most recent successful attempt
-                                selected = max(candidates, key=lambda r: r.metadata.timestamp or "")
-
-                            deduplicated_results.append(selected)
-
-                        # Create array of cell data for all replicates
-                        replicates_data = []
-                        for result in deduplicated_results:
-                            # Extract template pass/fail status and rubric score if available
-                            cell_data = {
-                                "replicate": result.metadata.replicate,
-                                "passed": None,
-                                "score": None,
-                                "abstained": False,
-                                "insufficient": False,
-                                "error": result.metadata.error is not None,
-                            }
-
-                            if result.template and hasattr(result.template, "verify_result"):
-                                cell_data["passed"] = result.template.verify_result
-
-                            if result.template and hasattr(result.template, "abstention_detected"):
-                                cell_data["abstained"] = result.template.abstention_detected or False
-
-                            if result.template and hasattr(result.template, "sufficiency_detected"):
-                                # sufficiency_detected=False means insufficient, True means sufficient
-                                cell_data["insufficient"] = result.template.sufficiency_detected is False
-
-                            if result.rubric and hasattr(result.rubric, "overall_score"):
-                                cell_data["score"] = result.rubric.overall_score
-
-                            # Extract execution metadata for tooltip
-                            # Execution type: "Agent" if agent_metrics present, "Standard" otherwise
-                            has_agent = (
-                                result.template
-                                and hasattr(result.template, "agent_metrics")
-                                and result.template.agent_metrics is not None
-                            )
-                            cell_data["execution_type"] = "Agent" if has_agent else "Standard"
-
-                            # Token usage from usage_metadata.total
-                            if (
-                                result.template
-                                and hasattr(result.template, "usage_metadata")
-                                and result.template.usage_metadata
-                            ):
-                                total_usage = result.template.usage_metadata.get("total", {})
-                                inp = total_usage.get("input_tokens", 0)
-                                out = total_usage.get("output_tokens", 0)
-                                # Handle None values
-                                cell_data["input_tokens"] = (
-                                    int(inp) if inp is not None and isinstance(inp, int | float) else 0
-                                )
-                                cell_data["output_tokens"] = (
-                                    int(out) if out is not None and isinstance(out, int | float) else 0
-                                )
-                            else:
-                                cell_data["input_tokens"] = 0
-                                cell_data["output_tokens"] = 0
-
-                            # Iterations (only if agent was used)
-                            if has_agent:
-                                cell_data["iterations"] = result.template.agent_metrics.get("iterations", 0)
-                            else:
-                                cell_data["iterations"] = 0
-
-                            # Extract rubric trait scores for badge overlays
-                            if result.rubric:
-                                rubric_scores: dict[str, dict[str, bool | int | float]] = {}
-                                if hasattr(result.rubric, "llm_trait_scores") and result.rubric.llm_trait_scores:
-                                    rubric_scores["llm"] = result.rubric.llm_trait_scores
-                                if hasattr(result.rubric, "regex_trait_scores") and result.rubric.regex_trait_scores:
-                                    rubric_scores["regex"] = result.rubric.regex_trait_scores
-                                if (
-                                    hasattr(result.rubric, "callable_trait_scores")
-                                    and result.rubric.callable_trait_scores
-                                ):
-                                    rubric_scores["callable"] = result.rubric.callable_trait_scores
-                                if rubric_scores:
-                                    cell_data["rubric_scores"] = rubric_scores
-
-                            replicates_data.append(cell_data)
-
+                        # Deduplicate and build cell data using helper functions
+                        deduplicated_results = _deduplicate_results_by_replicate(matching_results)
+                        replicates_data = [_build_heatmap_cell(r) for r in deduplicated_results]
                         question_row["results_by_model"][model_key] = {"replicates": replicates_data}
                     else:
-                        # No result for this question/model combo
                         question_row["results_by_model"][model_key] = {"replicates": []}
 
                 heatmap_data.append(question_row)
 
-            # Generate per-question token data for bar charts
-            import numpy as np
-
+            # Generate per-question token data for bar charts using helper function
             question_token_data = []
-            # Compute token stats across all replicates
             for question_id, (question_text, _keywords) in questions_map.items():
                 question_data = {
                     "question_id": question_id,
@@ -609,58 +628,19 @@ def register_verification_routes(app: Any, verification_service: Any) -> None:
                     "models": [],
                 }
 
-                for model_key in model_results:
-                    # Get all results for this question and model (all replicates)
-                    matching_results = [r for r in model_results[model_key] if r.metadata.question_id == question_id]
-
-                    if matching_results:
-                        # Collect token measurements across replicates
-                        input_tokens = []
-                        output_tokens = []
-
-                        for r in matching_results:
-                            if (
-                                r.template
-                                and hasattr(r.template, "usage_metadata")
-                                and r.template.usage_metadata
-                                and "total" in r.template.usage_metadata
-                            ):
-                                total_usage = r.template.usage_metadata["total"]
-                                inp = total_usage.get("input_tokens", 0)
-                                out = total_usage.get("output_tokens", 0)
-                                # Only append non-None values to avoid NaN in statistics
-                                if inp is not None and isinstance(inp, int | float) and inp > 0:
-                                    input_tokens.append(inp)
-                                if out is not None and isinstance(out, int | float) and out > 0:
-                                    output_tokens.append(out)
-
-                        # Compute median and std
-                        if input_tokens:
-                            input_median = float(np.median(input_tokens))
-                            input_std = float(np.std(input_tokens))
-                        else:
-                            input_median = 0.0
-                            input_std = 0.0
-
-                        if output_tokens:
-                            output_median = float(np.median(output_tokens))
-                            output_std = float(np.std(output_tokens))
-                        else:
-                            output_median = 0.0
-                            output_std = 0.0
-
-                        # Extract model display name with MCP info
+                for model_key, results_list in model_results.items():
+                    stats = _compute_token_stats(results_list, question_id)
+                    if stats["input_median"] > 0 or stats["output_median"] > 0:
                         parts = model_key.split("|")
                         model_display_name = f"{parts[0]} (MCP: {parts[1]})" if len(parts) >= 2 else parts[0]
-
                         question_data["models"].append(
                             {
                                 "model_key": model_key,
                                 "model_display_name": model_display_name,
-                                "input_tokens_median": input_median,
-                                "input_tokens_std": input_std,
-                                "output_tokens_median": output_median,
-                                "output_tokens_std": output_std,
+                                "input_tokens_median": stats["input_median"],
+                                "input_tokens_std": stats["input_std"],
+                                "output_tokens_median": stats["output_median"],
+                                "output_tokens_std": stats["output_std"],
                             }
                         )
 

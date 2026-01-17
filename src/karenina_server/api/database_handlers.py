@@ -7,13 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    from karenina.schemas import (
-        CallableTrait,
-        LLMRubricTrait,
-        MetricRubricTrait,
-        RegexTrait,
-        Rubric,
-    )
+    from karenina.schemas import Rubric
     from karenina.storage import (
         DBConfig,
         ImportMetadataModel,
@@ -27,15 +21,13 @@ try:
         save_benchmark,
     )
 
+    from ..utils.rubric_utils import build_rubric_from_dict
+
     STORAGE_AVAILABLE = True
 except ImportError:
     STORAGE_AVAILABLE = False
-    # Provide type stubs for when storage is unavailable
-    CallableTrait = None
-    LLMRubricTrait = None
-    MetricRubricTrait = None
-    RegexTrait = None
     Rubric = None
+    build_rubric_from_dict = None  # type: ignore[assignment]
 
 
 # Trait keys for consistent iteration over rubric trait types
@@ -141,138 +133,6 @@ def _normalize_creator_name(creator: str | dict[str, Any] | None) -> str:
         name = creator.get("name", "Unknown")
         return str(name)  # Ensure it's a string
     return "Unknown"
-
-
-# -----------------------------------------------------------------------------
-# Trait Parsing Helpers (dict -> Pydantic model)
-# These functions handle converting frontend rubric dicts to backend trait objects
-# -----------------------------------------------------------------------------
-
-
-def _normalize_trait_kind(kind: str | None) -> str:
-    """Normalize trait kind string to backend TraitKind values.
-
-    The frontend may send different casing or naming conventions.
-    This function maps them to the expected backend values.
-
-    Args:
-        kind: The trait kind from frontend (e.g., 'binary', 'Binary', 'score', 'Score')
-
-    Returns:
-        Normalized kind string ('boolean' or 'score')
-    """
-    if kind is None:
-        return "score"
-    if kind.lower() == "binary":
-        return "boolean"
-    if kind.lower() == "score":
-        return "score"
-    return kind
-
-
-def _parse_llm_trait(trait_data: dict[str, Any]) -> LLMRubricTrait:
-    """Parse a dict into an LLMRubricTrait.
-
-    Args:
-        trait_data: Dict with trait properties from frontend.
-
-    Returns:
-        LLMRubricTrait instance.
-    """
-    kind = _normalize_trait_kind(trait_data.get("kind"))
-    return LLMRubricTrait(
-        name=trait_data["name"],
-        description=trait_data.get("description"),
-        kind=kind,
-        min_score=trait_data.get("min_score", 1) if kind == "score" else None,
-        max_score=trait_data.get("max_score", 5) if kind == "score" else None,
-    )
-
-
-def _parse_regex_trait(trait_data: dict[str, Any]) -> RegexTrait:
-    """Parse a dict into a RegexTrait.
-
-    Args:
-        trait_data: Dict with trait properties from frontend.
-
-    Returns:
-        RegexTrait instance.
-    """
-    return RegexTrait(
-        name=trait_data["name"],
-        description=trait_data.get("description"),
-        pattern=trait_data.get("pattern", ""),
-        case_sensitive=trait_data.get("case_sensitive", True),
-        invert_result=trait_data.get("invert_result", False),
-    )
-
-
-def _parse_callable_trait(trait_data: dict[str, Any]) -> CallableTrait:
-    """Parse a dict into a CallableTrait.
-
-    Args:
-        trait_data: Dict with trait properties from frontend.
-
-    Returns:
-        CallableTrait instance.
-    """
-    return CallableTrait(
-        name=trait_data["name"],
-        description=trait_data.get("description"),
-        callable_code=trait_data.get("callable_code", b""),
-        kind=trait_data.get("kind", "boolean"),
-        min_score=trait_data.get("min_score"),
-        max_score=trait_data.get("max_score"),
-        invert_result=trait_data.get("invert_result", False),
-    )
-
-
-def _parse_metric_trait(trait_data: dict[str, Any]) -> MetricRubricTrait:
-    """Parse a dict into a MetricRubricTrait.
-
-    Args:
-        trait_data: Dict with trait properties from frontend.
-
-    Returns:
-        MetricRubricTrait instance.
-    """
-    return MetricRubricTrait(
-        name=trait_data["name"],
-        description=trait_data.get("description"),
-        evaluation_mode=trait_data.get("evaluation_mode", "tp_only"),
-        metrics=trait_data.get("metrics", []),
-        tp_instructions=trait_data.get("tp_instructions", []),
-        tn_instructions=trait_data.get("tn_instructions", []),
-        repeated_extraction=trait_data.get("repeated_extraction", True),
-    )
-
-
-def _build_rubric_from_dict(rubric_data: dict[str, Any]) -> Rubric | None:
-    """Build a Rubric object from a frontend rubric dict.
-
-    This function handles all trait types (LLM, regex, callable, metric)
-    and returns a fully constructed Rubric object.
-
-    Args:
-        rubric_data: Dict containing trait lists from frontend.
-
-    Returns:
-        Rubric instance, or None if no traits are present.
-    """
-    llm_traits = [_parse_llm_trait(t) for t in rubric_data.get("llm_traits", [])]
-    regex_traits = [_parse_regex_trait(t) for t in rubric_data.get("regex_traits", [])]
-    callable_traits = [_parse_callable_trait(t) for t in rubric_data.get("callable_traits", [])]
-    metric_traits = [_parse_metric_trait(t) for t in rubric_data.get("metric_traits", [])]
-
-    if not any([llm_traits, regex_traits, callable_traits, metric_traits]):
-        return None
-
-    return Rubric(
-        llm_traits=llm_traits,
-        regex_traits=regex_traits,
-        callable_traits=callable_traits,
-        metric_traits=metric_traits,
-    )
 
 
 def register_database_routes(
@@ -573,13 +433,13 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    rubric = _build_rubric_from_dict(q_data["question_rubric"])
+                    rubric = build_rubric_from_dict(q_data["question_rubric"])
                     if rubric:
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                global_rubric = _build_rubric_from_dict(request.checkpoint_data["global_rubric"])
+                global_rubric = build_rubric_from_dict(request.checkpoint_data["global_rubric"])
                 if global_rubric:
                     benchmark.set_global_rubric(global_rubric)
 
@@ -674,13 +534,13 @@ def register_database_routes(
 
                 # Add question-specific rubric if present
                 if q_data.get("question_rubric"):
-                    rubric = _build_rubric_from_dict(q_data["question_rubric"])
+                    rubric = build_rubric_from_dict(q_data["question_rubric"])
                     if rubric:
                         benchmark.set_question_rubric(question_id, rubric)
 
             # Add global rubric if present
             if request.checkpoint_data.get("global_rubric"):
-                global_rubric = _build_rubric_from_dict(request.checkpoint_data["global_rubric"])
+                global_rubric = build_rubric_from_dict(request.checkpoint_data["global_rubric"])
                 if global_rubric:
                     benchmark.set_global_rubric(global_rubric)
 
