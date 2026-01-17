@@ -165,8 +165,12 @@ def register_database_routes(
     @app.post("/api/database/connect", response_model=DatabaseConnectResponse)  # type: ignore[misc]
     async def connect_database_endpoint(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
         """Connect to or create a database."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        from ..exceptions import ServiceUnavailableError, ValidationError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Create database configuration
@@ -190,14 +194,22 @@ def register_database_routes(
                 message=f"Successfully connected to database. Found {benchmark_count} benchmarks.",
             )
 
+        except PydanticValidationError as e:
+            # Invalid URL format from DBConfig validation
+            raise ValidationError(f"Invalid database URL format: {e!s}") from e
+        except ValueError as e:
+            # Also catch ValueError from DBConfig field_validator
+            raise ValidationError(f"Invalid database URL: {e!s}") from e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error connecting to database: {e!s}") from e
 
     @app.get("/api/database/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
     async def list_benchmarks_endpoint(storage_url: str) -> BenchmarkListResponse:
         """List all benchmarks in the database."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             db_config = DBConfig(storage_url=storage_url)
@@ -224,8 +236,10 @@ def register_database_routes(
     @app.post("/api/database/load-benchmark", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
     async def load_benchmark_endpoint(request: BenchmarkLoadRequest) -> BenchmarkLoadResponse:
         """Load a benchmark from the database."""
+        from ..exceptions import NotFoundError, ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             from datetime import datetime
@@ -325,15 +339,17 @@ def register_database_routes(
             )
 
         except ValueError as e:
-            raise HTTPException(status_code=404, detail=f"Benchmark not found: {e!s}") from e
+            raise NotFoundError(f"Benchmark not found: {e!s}") from e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading benchmark: {e!s}") from e
 
     @app.post("/api/database/create-benchmark", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
     async def create_benchmark_endpoint(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
         """Create a new empty benchmark in the database."""
+        from ..exceptions import ConflictError, ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Import Benchmark class here to avoid circular imports
@@ -345,7 +361,9 @@ def register_database_routes(
             try:
                 summaries = get_benchmark_summary(db_config, benchmark_name=request.name)
                 if summaries:
-                    raise HTTPException(status_code=400, detail=f"Benchmark '{request.name}' already exists")
+                    raise ConflictError(f"Benchmark '{request.name}' already exists")
+            except ConflictError:
+                raise
             except Exception:
                 # Database may not exist yet, which is fine
                 pass
@@ -382,7 +400,7 @@ def register_database_routes(
                 message=f"Successfully created benchmark '{request.name}' in database",
             )
 
-        except HTTPException:
+        except (HTTPException, ConflictError, ServiceUnavailableError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error creating benchmark: {e!s}") from e
@@ -390,8 +408,10 @@ def register_database_routes(
     @app.post("/api/database/save-benchmark", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
     async def save_benchmark_endpoint(request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
         """Save current checkpoint data to the database."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Import required classes
@@ -476,8 +496,10 @@ def register_database_routes(
     @app.post("/api/database/resolve-duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
     async def resolve_duplicates_endpoint(request: DuplicateResolutionRequest) -> DuplicateResolutionResponse:
         """Resolve duplicate questions by applying user's choices (keep_old vs keep_new)."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Import required classes
@@ -566,20 +588,22 @@ def register_database_routes(
     @app.post("/api/database/init")  # type: ignore[misc]
     async def init_database_endpoint(request: dict[str, Any]) -> dict[str, Any]:
         """Initialize a new database."""
+        from ..exceptions import ServiceUnavailableError, ValidationError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             storage_url = request.get("storage_url")
             if not storage_url:
-                raise HTTPException(status_code=400, detail="storage_url is required")
+                raise ValidationError("storage_url is required")
 
             db_config = DBConfig(storage_url=storage_url)
             init_database(db_config)
 
             return {"success": True, "storage_url": storage_url, "message": "Database initialized successfully"}
 
-        except HTTPException:
+        except (HTTPException, ValidationError, ServiceUnavailableError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error initializing database: {e!s}") from e
@@ -587,6 +611,8 @@ def register_database_routes(
     @app.get("/api/database/list-databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
     async def list_databases_endpoint() -> ListDatabasesResponse:
         """List all .db files in the DB_PATH directory."""
+        from ..exceptions import NotFoundError
+
         try:
             # Get DB_PATH from environment, default to current working directory
             db_path = os.environ.get("DB_PATH")
@@ -595,7 +621,7 @@ def register_database_routes(
 
             # Ensure directory exists
             if not db_directory.exists():
-                raise HTTPException(status_code=404, detail=f"Database directory not found: {db_directory.absolute()}")
+                raise NotFoundError(f"Database directory not found: {db_directory.absolute()}")
 
             # Find all .db files
             databases = []
@@ -618,7 +644,7 @@ def register_database_routes(
                 is_default_directory=is_default,
             )
 
-        except HTTPException:
+        except (HTTPException, NotFoundError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
@@ -635,25 +661,24 @@ def register_database_routes(
         - Database must be within the allowed directory
         - Closes any active connections before deletion
         """
+        from ..exceptions import ForbiddenError, NotFoundError, ValidationError
+
         try:
             storage_url = request.storage_url
 
             # Validate it's a SQLite URL
             if not storage_url.startswith("sqlite:///"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Only SQLite databases can be deleted. URL must start with 'sqlite:///'",
-                )
+                raise ValidationError("Only SQLite databases can be deleted. URL must start with 'sqlite:///'")
 
             # Extract the file path from the URL
             db_path = Path(storage_url.replace("sqlite:///", ""))
 
             # Validate the file exists
             if not db_path.exists():
-                raise HTTPException(status_code=404, detail=f"Database file not found: {db_path}")
+                raise NotFoundError(f"Database file not found: {db_path}")
 
             if not db_path.is_file():
-                raise HTTPException(status_code=400, detail=f"Path is not a file: {db_path}")
+                raise ValidationError(f"Path is not a file: {db_path}")
 
             # Validate the file is within the allowed directory
             db_directory = os.environ.get("DB_PATH")
@@ -661,10 +686,7 @@ def register_database_routes(
             db_path_resolved = db_path.resolve()
 
             if not str(db_path_resolved).startswith(str(allowed_dir)):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Cannot delete database outside of allowed directory: {allowed_dir}",
-                )
+                raise ForbiddenError(f"Cannot delete database outside of allowed directory: {allowed_dir}")
 
             # Close any active connections to this database
             if STORAGE_AVAILABLE:
@@ -681,7 +703,7 @@ def register_database_routes(
             # Return None for 204 No Content response
             return None
 
-        except HTTPException:
+        except (HTTPException, ValidationError, NotFoundError, ForbiddenError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting database: {e!s}") from e
@@ -695,8 +717,10 @@ def register_database_routes(
         - All questions associated with the benchmark
         - All verification runs and results associated with the benchmark
         """
+        from ..exceptions import NotFoundError, ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, VerificationRunModel
@@ -711,10 +735,7 @@ def register_database_routes(
                 ).scalar_one_or_none()
 
                 if not benchmark:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Benchmark '{request.benchmark_name}' not found",
-                    )
+                    raise NotFoundError(f"Benchmark '{request.benchmark_name}' not found")
 
                 # Count associated data for the response
                 question_count = (
@@ -746,7 +767,7 @@ def register_database_routes(
                     deleted_runs=run_count,
                 )
 
-        except HTTPException:
+        except (HTTPException, NotFoundError, ServiceUnavailableError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting benchmark: {e!s}") from e
@@ -758,8 +779,10 @@ def register_database_routes(
     @app.post("/api/database/import-results", response_model=ImportResultsResponse)  # type: ignore[misc]
     async def import_results_endpoint(request: ImportResultsRequest) -> ImportResultsResponse:
         """Import verification results from JSON export format."""
+        from ..exceptions import ServiceUnavailableError, ValidationError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             db_config = DBConfig(storage_url=request.storage_url)
@@ -780,15 +803,19 @@ def register_database_routes(
             )
 
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+            raise ValidationError(str(e)) from e
+        except ServiceUnavailableError:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error importing results: {e!s}") from e
 
     @app.post("/api/database/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
     async def list_verification_runs_endpoint(request: ListVerificationRunsRequest) -> ListVerificationRunsResponse:
         """List all verification runs in the database."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             from sqlalchemy import select
@@ -860,8 +887,10 @@ def register_database_routes(
         request: LoadVerificationResultsRequest,
     ) -> LoadVerificationResultsResponse:
         """Load verification results with filtering options."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             db_config = DBConfig(storage_url=request.storage_url)
