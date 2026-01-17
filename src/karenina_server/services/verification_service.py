@@ -348,8 +348,19 @@ class VerificationService:
         # Filter templates if specific question IDs are requested
         if question_ids:
             templates_to_verify = [t for t in finished_templates if t.question_id in question_ids]
+            # Validate that at least one requested question_id exists in templates
+            if not templates_to_verify:
+                available_ids = [t.question_id for t in finished_templates]
+                raise ValueError(
+                    f"None of the requested question_ids exist in finished_templates. "
+                    f"Requested: {question_ids}, Available: {available_ids}"
+                )
         else:
             templates_to_verify = finished_templates
+
+        # Validate we have templates to verify
+        if not templates_to_verify:
+            raise ValueError("No templates to verify. finished_templates is empty.")
 
         # Calculate total combinations for progress tracking
         if hasattr(config, "answering_models") and config.answering_models:

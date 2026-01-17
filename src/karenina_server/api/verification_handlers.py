@@ -310,6 +310,9 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
 
         except HTTPException:
             raise
+        except ValueError as e:
+            # Validation errors (e.g., invalid question_ids, empty templates)
+            raise HTTPException(status_code=422, detail=str(e)) from e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
