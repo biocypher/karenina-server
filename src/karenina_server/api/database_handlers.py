@@ -150,7 +150,7 @@ def register_database_routes(
     DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
     DeleteDatabaseRequest: Any,
-    DeleteDatabaseResponse: Any,
+    _DeleteDatabaseResponse: Any,  # Unused: endpoint returns 204 No Content
     DeleteBenchmarkRequest: Any,
     DeleteBenchmarkResponse: Any,
     ImportResultsRequest: Any,
@@ -329,7 +329,7 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading benchmark: {e!s}") from e
 
-    @app.post("/api/database/create-benchmark", response_model=BenchmarkCreateResponse)  # type: ignore[misc]
+    @app.post("/api/database/create-benchmark", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
     async def create_benchmark_endpoint(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
         """Create a new empty benchmark in the database."""
         if not STORAGE_AVAILABLE:
@@ -623,8 +623,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
 
-    @app.delete("/api/database/delete", response_model=DeleteDatabaseResponse)  # type: ignore[misc]
-    async def delete_database_endpoint(request: DeleteDatabaseRequest) -> DeleteDatabaseResponse:
+    @app.delete("/api/database/delete", status_code=204)  # type: ignore[misc]
+    async def delete_database_endpoint(request: DeleteDatabaseRequest) -> None:
         """Delete a SQLite database file.
 
         Only works for SQLite databases. The database file must be in the DB_PATH directory
@@ -677,13 +677,9 @@ def register_database_routes(
                     pass  # Ignore errors closing connections
 
             # Delete the file
-            db_name = db_path.name
             db_path.unlink()
-
-            return DeleteDatabaseResponse(
-                success=True,
-                message=f"Successfully deleted database: {db_name}",
-            )
+            # Return None for 204 No Content response
+            return None
 
         except HTTPException:
             raise

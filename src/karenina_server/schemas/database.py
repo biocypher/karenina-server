@@ -2,7 +2,25 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class PaginationParams(BaseModel):
+    """Pagination query parameters."""
+
+    page: int = Field(default=1, ge=1, description="Page number (1-indexed)")
+    page_size: int = Field(default=50, ge=1, le=100, description="Number of items per page (max 100)")
+
+
+class PaginationMetadata(BaseModel):
+    """Pagination metadata included in paginated responses."""
+
+    page: int = Field(description="Current page number (1-indexed)")
+    page_size: int = Field(description="Number of items per page")
+    total: int = Field(description="Total number of items across all pages")
+    total_pages: int = Field(description="Total number of pages")
+    has_next: bool = Field(description="Whether there is a next page")
+    has_prev: bool = Field(description="Whether there is a previous page")
 
 
 class DatabaseConnectRequest(BaseModel):
@@ -34,11 +52,12 @@ class BenchmarkInfo(BaseModel):
 
 
 class BenchmarkListResponse(BaseModel):
-    """Response for listing benchmarks."""
+    """Response for listing benchmarks with pagination support."""
 
     success: bool
     benchmarks: list[BenchmarkInfo]
-    count: int
+    count: int  # Number of items in current page (for backward compatibility)
+    pagination: PaginationMetadata | None = None  # Pagination metadata (optional for backward compat)
     error: str | None = None
 
 
