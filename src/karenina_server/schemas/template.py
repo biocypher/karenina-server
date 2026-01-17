@@ -27,9 +27,11 @@ class TemplateGenerationRequest(BaseModel):
 class TemplateGenerationResponse(BaseModel):
     """Response for template generation start."""
 
+    success: bool = True  # Standardized field for response envelope consistency
     job_id: str
     status: str
     message: str
+    error: str | None = None
 
 
 class TemplateGenerationStatusResponse(BaseModel):
