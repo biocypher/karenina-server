@@ -245,3 +245,78 @@ async def reset_defaults() -> dict[str, str]:
     except Exception as e:
         logger.error(f"Error resetting defaults: {e}")
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
+
+
+# =============================================================================
+# V2 API Endpoints (RESTful)
+# =============================================================================
+
+
+@router.get("/v2/config/env-vars", response_model=dict[str, str])
+async def get_env_vars_v2() -> dict[str, str]:
+    """Get current environment variables - masked (v2 endpoint)."""
+    return await get_env_vars()
+
+
+@router.get("/v2/config/env-vars/unmasked", response_model=dict[str, str])
+async def get_env_vars_unmasked_v2() -> dict[str, str]:
+    """Get current environment variables - unmasked (v2 endpoint)."""
+    try:
+        return config_service.read_env_vars(mask_secrets=False)
+    except Exception as e:
+        logger.error(f"Error reading environment variables: {e}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(e))
+
+
+@router.put("/v2/config/env-vars")
+async def update_env_var_v2(update: EnvVarUpdate) -> dict[str, str]:
+    """Update a single environment variable (v2 endpoint)."""
+    return await update_env_var(update)
+
+
+@router.put("/v2/config/env-vars/bulk")
+async def update_env_vars_bulk_v2(update: EnvVarBulkUpdate) -> dict[str, str | list[str]]:
+    """Update multiple environment variables atomically (v2 endpoint)."""
+    return await update_env_vars_bulk(update)
+
+
+@router.delete("/v2/config/env-vars/{key}")
+async def delete_env_var_v2(key: str) -> dict[str, str]:
+    """Remove an environment variable (v2 endpoint)."""
+    return await delete_env_var(key)
+
+
+@router.get("/v2/config/env-file")
+async def get_env_file_contents_v2() -> dict[str, str]:
+    """Get raw .env file contents (v2 endpoint)."""
+    return await get_env_file_contents()
+
+
+@router.put("/v2/config/env-file")
+async def update_env_file_v2(update: EnvFileUpdate) -> dict[str, str]:
+    """Update the entire .env file contents (v2 endpoint)."""
+    return await update_env_file(update)
+
+
+@router.get("/v2/config/defaults", response_model=DefaultConfig)
+async def get_default_config_v2() -> DefaultConfig:
+    """Get default LLM configuration settings (v2 endpoint)."""
+    return await get_default_config()
+
+
+@router.put("/v2/config/defaults")
+async def update_default_config_v2(config: DefaultConfig) -> dict[str, str | dict[str, str | None]]:
+    """Update default LLM configuration settings (v2 endpoint)."""
+    return await update_default_config(config)
+
+
+@router.get("/v2/config/defaults/status")
+async def get_defaults_file_status_v2() -> dict[str, Any]:
+    """Get status information about the defaults file (v2 endpoint)."""
+    return await get_defaults_file_status()
+
+
+@router.post("/v2/config/defaults/reset")
+async def reset_defaults_v2() -> dict[str, str]:
+    """Reset defaults to fallback values (v2 endpoint)."""
+    return await reset_defaults()
