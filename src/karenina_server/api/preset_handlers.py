@@ -274,3 +274,44 @@ async def get_presets_file_status() -> dict[str, Any]:
     except Exception as e:
         logger.error(f"Error getting presets file status: {e}")
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
+
+
+# =============================================================================
+# V2 API Endpoints (RESTful)
+# =============================================================================
+
+
+@router.get("/v2/presets", response_model=dict[str, list[PresetSummary]])
+async def list_presets_v2() -> dict[str, list[PresetSummary]]:
+    """Get all presets with summary information (v2 endpoint)."""
+    return await list_presets()
+
+
+@router.get("/v2/presets/{preset_id}", response_model=dict[str, PresetDetail])
+async def get_preset_v2(preset_id: str) -> dict[str, PresetDetail]:
+    """Get a specific preset by ID (v2 endpoint)."""
+    return await get_preset(preset_id)
+
+
+@router.post("/v2/presets", response_model=dict[str, Any], status_code=201)
+async def create_preset_v2(request: CreatePresetRequest) -> dict[str, Any]:
+    """Create a new preset (v2 endpoint)."""
+    return await create_preset(request)
+
+
+@router.put("/v2/presets/{preset_id}", response_model=dict[str, Any])
+async def update_preset_v2(preset_id: str, request: UpdatePresetRequest) -> dict[str, Any]:
+    """Update an existing preset (v2 endpoint)."""
+    return await update_preset(preset_id, request)
+
+
+@router.delete("/v2/presets/{preset_id}", response_model=dict[str, str])
+async def delete_preset_v2(preset_id: str) -> dict[str, str]:
+    """Delete a preset (v2 endpoint)."""
+    return await delete_preset(preset_id)
+
+
+@router.get("/v2/presets-status")
+async def get_presets_file_status_v2() -> dict[str, Any]:
+    """Get status information about the presets file (v2 endpoint)."""
+    return await get_presets_file_status()
