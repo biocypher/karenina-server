@@ -145,6 +145,7 @@ def register_database_routes(
     BenchmarkCreateRequest: Any,
     BenchmarkCreateResponse: Any,
     BenchmarkSaveRequest: Any,
+    BenchmarkSaveRequestV2: Any,
     BenchmarkSaveResponse: Any,
     DuplicateResolutionRequest: Any,
     DuplicateResolutionResponse: Any,
@@ -1019,7 +1020,7 @@ def register_database_routes(
         return await create_benchmark_endpoint(request)
 
     @app.put("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
-    async def update_benchmark_v2(benchmark_name: str, request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
+    async def update_benchmark_v2(benchmark_name: str, request: BenchmarkSaveRequestV2) -> BenchmarkSaveResponse:
         """Update/save a benchmark (RESTful v2 endpoint).
 
         This is the RESTful alternative to POST /api/database/save-benchmark.
@@ -1027,14 +1028,19 @@ def register_database_routes(
 
         Args:
             benchmark_name: Name of the benchmark to save (from URL path).
-            request: Save request with checkpoint data.
+            request: Save request with checkpoint data (v2 schema without benchmark_name).
 
         Returns:
             BenchmarkSaveResponse with save status.
         """
-        # Override benchmark_name from URL path for consistency
-        request.benchmark_name = benchmark_name
-        return await save_benchmark_endpoint(request)
+        # Construct full request with benchmark_name from URL path
+        full_request = BenchmarkSaveRequest(
+            storage_url=request.storage_url,
+            benchmark_name=benchmark_name,
+            checkpoint_data=request.checkpoint_data,
+            detect_duplicates=request.detect_duplicates,
+        )
+        return await save_benchmark_endpoint(full_request)
 
     @app.post("/api/v2/benchmarks/{benchmark_name}/duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
     async def resolve_benchmark_duplicates_v2(

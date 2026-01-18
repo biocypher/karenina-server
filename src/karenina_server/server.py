@@ -63,6 +63,7 @@ if FASTAPI_AVAILABLE:
         BenchmarkLoadRequest,
         BenchmarkLoadResponse,
         BenchmarkSaveRequest,
+        BenchmarkSaveRequestV2,
         BenchmarkSaveResponse,
         DatabaseConnectRequest,
         DatabaseConnectResponse,
@@ -106,6 +107,7 @@ else:
     BenchmarkCreateRequest = None  # type: ignore[misc,assignment]
     BenchmarkCreateResponse = None  # type: ignore[misc,assignment]
     BenchmarkSaveRequest = None  # type: ignore[misc,assignment]
+    BenchmarkSaveRequestV2 = None  # type: ignore[misc,assignment]
     BenchmarkSaveResponse = None  # type: ignore[misc,assignment]
     DuplicateResolutionRequest = None  # type: ignore[misc,assignment]
     DuplicateResolutionResponse = None  # type: ignore[misc,assignment]
@@ -498,6 +500,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         BenchmarkCreateRequest,
         BenchmarkCreateResponse,
         BenchmarkSaveRequest,
+        BenchmarkSaveRequestV2,
         BenchmarkSaveResponse,
         DuplicateResolutionRequest,
         DuplicateResolutionResponse,
@@ -520,6 +523,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
+    app.include_router(config_router, prefix="/api")  # V2 endpoints at /api/v2/config/...
     app.include_router(preset_router, prefix="/api")
 
     # Note: Event loop setup and shutdown are handled by lifespan context manager (conc-001)
