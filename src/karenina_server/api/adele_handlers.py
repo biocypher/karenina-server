@@ -90,7 +90,7 @@ def register_adele_routes(app: FastAPI, adele_service: AdeleClassificationServic
         For batch classification, use the batch endpoint.
 
         Args:
-            request: Request with question_text, optional question_id, and trait_names.
+            request: Request with question_text, optional question_id, trait_names, and llm_config.
 
         Returns:
             ClassifySingleQuestionResponse with classification results.
@@ -100,6 +100,7 @@ def register_adele_routes(app: FastAPI, adele_service: AdeleClassificationServic
                 question_text=request.question_text,
                 trait_names=request.trait_names,
                 question_id=request.question_id,
+                llm_config=request.llm_config,
             )
 
             return ClassifySingleQuestionResponse(
@@ -131,7 +132,7 @@ def register_adele_routes(app: FastAPI, adele_service: AdeleClassificationServic
         endpoint or WebSocket to track completion.
 
         Args:
-            request: Request with list of questions and optional trait_names.
+            request: Request with list of questions, optional trait_names, and llm_config.
 
         Returns:
             StartClassifyBatchResponse with job_id and status.
@@ -151,6 +152,7 @@ def register_adele_routes(app: FastAPI, adele_service: AdeleClassificationServic
             job_id = adele_service.start_batch_job(
                 questions=request.questions,
                 trait_names=request.trait_names,
+                llm_config=request.llm_config,
             )
 
             return StartClassifyBatchResponse(

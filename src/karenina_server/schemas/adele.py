@@ -1,6 +1,47 @@
 """ADeLe classification endpoint Pydantic models for the Karenina API."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class AdeleModelConfig(BaseModel):
+    """Configuration for the model used in ADeLe classification."""
+
+    interface: Literal["langchain", "openrouter", "openai_endpoint"] = Field(
+        default="langchain",
+        description="The interface to use for model initialization",
+    )
+    provider: str = Field(
+        default="anthropic",
+        description="Model provider (e.g., 'anthropic', 'openai', 'google_genai')",
+    )
+    model_name: str = Field(
+        default="claude-3-5-haiku-latest",
+        description="Model name to use for classification",
+    )
+    temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=2.0,
+        description="Temperature for LLM calls (0.0 for deterministic)",
+    )
+    endpoint_base_url: str | None = Field(
+        default=None,
+        description="Custom base URL for openai_endpoint interface",
+    )
+    endpoint_api_key: str | None = Field(
+        default=None,
+        description="API key for openai_endpoint interface",
+    )
+    trait_eval_mode: Literal["batch", "sequential"] = Field(
+        default="batch",
+        description=(
+            "How to evaluate traits for each question. "
+            "'batch' evaluates all traits in one LLM call (faster, cheaper). "
+            "'sequential' evaluates each trait separately (potentially more accurate)."
+        ),
+    )
 
 
 class AdeleTraitInfoResponse(BaseModel):
@@ -36,6 +77,10 @@ class ClassifySingleQuestionRequest(BaseModel):
     trait_names: list[str] | None = Field(
         default=None,
         description="List of ADeLe trait names to evaluate. If None, evaluates all 18 traits.",
+    )
+    llm_config: AdeleModelConfig | None = Field(
+        default=None,
+        description="Optional model configuration. If None, uses default settings.",
     )
 
 
@@ -73,6 +118,10 @@ class ClassifyBatchRequest(BaseModel):
     trait_names: list[str] | None = Field(
         default=None,
         description="List of ADeLe trait names to evaluate. If None, evaluates all 18 traits.",
+    )
+    llm_config: AdeleModelConfig | None = Field(
+        default=None,
+        description="Optional model configuration. If None, uses default settings.",
     )
 
 

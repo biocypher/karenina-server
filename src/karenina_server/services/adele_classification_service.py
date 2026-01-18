@@ -18,6 +18,8 @@ from karenina.integrations.adele import (
 )
 from karenina.integrations.adele.schemas import AdeleTraitInfo
 
+from karenina_server.schemas.adele import AdeleModelConfig
+
 from .progress_broadcaster import ProgressBroadcaster
 
 logger = logging.getLogger(__name__)
@@ -172,11 +174,34 @@ class AdeleClassificationService:
             traits_info.append(info)
         return traits_info
 
+    def _create_classifier(self, llm_config: AdeleModelConfig | None = None) -> QuestionClassifier:
+        """Create a classifier with the given config or return the default.
+
+        Args:
+            llm_config: Optional model configuration. If None, returns the default classifier.
+
+        Returns:
+            QuestionClassifier instance configured as specified.
+        """
+        if llm_config is None:
+            return self.classifier
+
+        return QuestionClassifier(
+            model_name=llm_config.model_name,
+            provider=llm_config.provider,
+            temperature=llm_config.temperature,
+            interface=llm_config.interface,
+            endpoint_base_url=llm_config.endpoint_base_url,
+            endpoint_api_key=llm_config.endpoint_api_key,
+            trait_eval_mode=llm_config.trait_eval_mode,
+        )
+
     def classify_single(
         self,
         question_text: str,
         trait_names: list[str] | None = None,
         question_id: str | None = None,
+        llm_config: AdeleModelConfig | None = None,
     ) -> QuestionClassificationResult:
         """Classify a single question synchronously.
 
@@ -184,11 +209,13 @@ class AdeleClassificationService:
             question_text: The question text to classify.
             trait_names: Optional list of trait names. If None, uses all 18 traits.
             question_id: Optional question identifier.
+            llm_config: Optional model configuration. If None, uses default settings.
 
         Returns:
             QuestionClassificationResult with scores and labels.
         """
-        return self.classifier.classify_single(
+        classifier = self._create_classifier(llm_config)
+        return classifier.classify_single(
             question_text=question_text,
             trait_names=trait_names,
             question_id=question_id,
@@ -198,12 +225,14 @@ class AdeleClassificationService:
         self,
         questions: list[dict[str, str]],
         trait_names: list[str] | None = None,
+        llm_config: AdeleModelConfig | None = None,
     ) -> str:
         """Start a batch classification job asynchronously.
 
         Args:
             questions: List of dicts with 'question_id' and 'question_text' keys.
             trait_names: Optional list of trait names to evaluate. If None, uses all 18.
+            llm_config: Optional model configuration. If None, uses default settings.
 
         Returns:
             Job ID string for tracking the job.
@@ -233,7 +262,7 @@ class AdeleClassificationService:
         self.jobs[job_id] = job
 
         logger.info(f"📋 Submitting ADeLe classification job {job_id} ({len(questions)} questions)")
-        future = self.executor.submit(self._run_batch_classification, job, questions)
+        future = self.executor.submit(self._run_batch_classification, job, questions, llm_config)
         self.futures[job_id] = future
         future.add_done_callback(lambda f: self._handle_job_completion(job_id, f))
 
@@ -299,6 +328,7 @@ class AdeleClassificationService:
         self,
         job: ClassificationJob,
         questions: list[dict[str, str]],
+        llm_config: AdeleModelConfig | None = None,
     ) -> None:
         """Execute batch classification in a worker thread."""
         try:
@@ -330,8 +360,11 @@ class AdeleClassificationService:
                     {"completed": completed, "total": total},
                 )
 
+            # Create classifier (with custom config if provided)
+            classifier = self._create_classifier(llm_config)
+
             # Run classification
-            results = self.classifier.classify_batch(
+            results = classifier.classify_batch(
                 questions=question_tuples,
                 trait_names=job.trait_names if job.trait_names else None,
                 on_progress=progress_callback,
