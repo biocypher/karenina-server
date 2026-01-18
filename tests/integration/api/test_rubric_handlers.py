@@ -182,12 +182,11 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 200
-        assert response.json()["message"] == "Rubric saved successfully"
 
         # Verify the rubric was stored correctly
-        get_response = client.get("/api/rubric")
+        get_response = client.get("/api/v2/rubrics/current")
         assert get_response.status_code == 200
         rubric = get_response.json()
         assert len(rubric["llm_traits"]) == 1
@@ -215,7 +214,7 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 422
 
     def test_literal_trait_too_few_classes(self, client):
@@ -233,7 +232,7 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 422
 
     def test_literal_trait_empty_class_name(self, client):
@@ -252,7 +251,7 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 422
 
     def test_literal_trait_empty_class_description(self, client):
@@ -271,7 +270,7 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 422
 
     def test_literal_trait_duplicate_class_names(self, client):
@@ -290,7 +289,7 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 422
 
     def test_literal_trait_max_classes(self, client):
@@ -307,11 +306,11 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 200
 
         # Verify max_score is correctly derived
-        get_response = client.get("/api/rubric")
+        get_response = client.get("/api/v2/rubrics/current")
         trait = get_response.json()["llm_traits"][0]
         assert trait["max_score"] == 19  # 20 classes -> max index 19
 
@@ -329,7 +328,7 @@ class TestLiteralKindTraitValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 422
 
     def test_literal_trait_mixed_with_other_kinds(self, client):
@@ -362,11 +361,11 @@ class TestLiteralKindTraitValidation:
                 },
             ]
         }
-        response = client.post("/api/rubric", json=rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=rubric_data)
         assert response.status_code == 200
 
         # Verify all traits are stored correctly
-        get_response = client.get("/api/rubric")
+        get_response = client.get("/api/v2/rubrics/current")
         rubric = get_response.json()
         assert len(rubric["llm_traits"]) == 3
 
