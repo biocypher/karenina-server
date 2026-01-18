@@ -401,6 +401,14 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         except ImportError:
             pass
 
+        # Set event loop for adele classification service broadcaster
+        try:
+            from .services.adele_classification_service import adele_classification_service as adele_svc
+
+            adele_svc.broadcaster.set_event_loop(loop)
+        except ImportError:
+            pass
+
         print("✓ Application startup complete")
         yield  # Application runs
 
@@ -420,6 +428,14 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
                 generation_svc.shutdown(wait=True, cancel_pending=False)
             except Exception as e:
                 print(f"Warning: Error shutting down generation service: {e}")
+
+        # Shut down adele classification service
+        try:
+            from .services.adele_classification_service import adele_classification_service as adele_svc
+
+            adele_svc.shutdown(wait=True)
+        except Exception as e:
+            print(f"Warning: Error shutting down adele classification service: {e}")
 
         print("✓ Application shutdown complete")
 
@@ -448,6 +464,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     # Add CORS middleware to allow requests from the frontend dev server
     from fastapi.middleware.cors import CORSMiddleware
 
+    from .api.adele_handlers import register_adele_routes
     from .api.auth_handlers import router as auth_router
     from .api.config_handlers import router as config_router
     from .api.database_handlers import register_database_routes
@@ -459,6 +476,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     from .api.rubric_handlers import router as rubric_router
     from .api.verification_handlers import register_verification_routes
     from .middleware.csrf_middleware import CsrfMiddleware
+    from .services.adele_classification_service import adele_classification_service
 
     origins = [
         "http://localhost:5173",  # Vite dev server
@@ -484,6 +502,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, ExtractQuestionsResponse)
     if verification_service is not None:
         register_verification_routes(app, verification_service)
+    register_adele_routes(app, adele_classification_service)
     register_generation_routes(
         app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
     )
