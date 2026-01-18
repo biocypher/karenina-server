@@ -70,3 +70,37 @@ async def delete_current_rubric() -> dict[str, str]:
     """
     rubric_service.clear_rubric()
     return {"message": "Rubric deleted successfully"}
+
+
+# =============================================================================
+# V2 API Endpoints (RESTful)
+# =============================================================================
+
+
+@router.get("/v2/rubrics/current", response_model=Rubric | None)
+async def get_current_rubric_v2() -> Rubric | None:
+    """Get the current rubric (v2 endpoint).
+
+    Returns the rubric that is currently configured for evaluation,
+    or None if no rubric is set.
+    """
+    return await get_current_rubric()
+
+
+@router.put("/v2/rubrics/current", response_model=dict[str, str])
+async def update_current_rubric_v2(rubric: Rubric) -> dict[str, str]:
+    """Create or update the current rubric (v2 endpoint).
+
+    This endpoint stores the rubric that will be used for evaluation.
+    Uses PUT since we're replacing the entire rubric resource.
+    """
+    return await create_or_update_rubric(rubric)
+
+
+@router.delete("/v2/rubrics/current", response_model=dict[str, str])
+async def delete_current_rubric_v2() -> dict[str, str]:
+    """Delete the current rubric (v2 endpoint).
+
+    This removes the currently configured rubric.
+    """
+    return await delete_current_rubric()
