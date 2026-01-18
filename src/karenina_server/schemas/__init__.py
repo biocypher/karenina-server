@@ -3,6 +3,19 @@
 This module re-exports all API schema models for convenient imports.
 """
 
+from karenina_server.schemas.adele import (
+    AdeleTraitInfoResponse,
+    ClassificationResultPayload,
+    ClassifyBatchProgressMessage,
+    ClassifyBatchProgressResponse,
+    ClassifyBatchRequest,
+    ClassifyBatchResultsResponse,
+    ClassifySingleQuestionRequest,
+    ClassifySingleQuestionResponse,
+    ListAdeleTraitsResponse,
+    StartClassifyBatchResponse,
+    UpdateQuestionMetadataRequest,
+)
 from karenina_server.schemas.database import (
     BenchmarkCreateRequest,
     BenchmarkCreateResponse,
@@ -110,4 +123,16 @@ __all__ = [
     "ComputeSummaryResponse",
     "CompareModelsRequest",
     "CompareModelsResponse",
+    # ADeLe classification schemas
+    "AdeleTraitInfoResponse",
+    "ListAdeleTraitsResponse",
+    "ClassifySingleQuestionRequest",
+    "ClassificationResultPayload",
+    "ClassifySingleQuestionResponse",
+    "ClassifyBatchRequest",
+    "StartClassifyBatchResponse",
+    "ClassifyBatchProgressResponse",
+    "ClassifyBatchResultsResponse",
+    "ClassifyBatchProgressMessage",
+    "UpdateQuestionMetadataRequest",
 ]
