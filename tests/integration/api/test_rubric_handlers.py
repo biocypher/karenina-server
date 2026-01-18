@@ -49,7 +49,7 @@ class TestRubricCRUD:
 
     def test_create_rubric_success(self, client, sample_rubric_data):
         """Test successful rubric creation."""
-        response = client.post("/api/rubric", json=sample_rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=sample_rubric_data)
         assert response.status_code == 200
         data = response.json()
         assert data["message"] == "Rubric saved successfully"
@@ -57,35 +57,35 @@ class TestRubricCRUD:
     def test_create_rubric_invalid_trait_name(self, client, sample_rubric_data):
         """Test rubric creation with invalid trait name."""
         sample_rubric_data["llm_traits"][0]["name"] = ""
-        response = client.post("/api/rubric", json=sample_rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=sample_rubric_data)
         assert response.status_code == 422
 
     def test_create_rubric_missing_traits(self, client):
         """Test rubric creation with missing traits."""
-        response = client.post("/api/rubric", json={})
+        response = client.put("/api/v2/rubrics/current", json={})
         assert response.status_code == 400
         assert "must have at least one trait" in response.json()["detail"]
 
     def test_create_rubric_duplicate_trait_names(self, client, sample_rubric_data):
         """Test rubric creation with duplicate trait names."""
         sample_rubric_data["llm_traits"][1]["name"] = sample_rubric_data["llm_traits"][0]["name"]
-        response = client.post("/api/rubric", json=sample_rubric_data)
+        response = client.put("/api/v2/rubrics/current", json=sample_rubric_data)
         assert response.status_code == 400
         assert "must be unique" in response.json()["detail"]
 
     def test_get_rubric_none_exists(self, client):
         """Test getting rubric when none exists."""
-        client.delete("/api/rubric")
-        response = client.get("/api/rubric")
+        client.delete("/api/v2/rubrics/current")
+        response = client.get("/api/v2/rubrics/current")
         assert response.status_code == 200
         assert response.json() is None
 
     def test_get_rubric_after_create(self, client, sample_rubric_data):
         """Test getting rubric after creation."""
-        create_response = client.post("/api/rubric", json=sample_rubric_data)
+        create_response = client.put("/api/v2/rubrics/current", json=sample_rubric_data)
         assert create_response.status_code == 200
 
-        get_response = client.get("/api/rubric")
+        get_response = client.get("/api/v2/rubrics/current")
         assert get_response.status_code == 200
         rubric_data = get_response.json()
         assert rubric_data is not None
@@ -94,7 +94,7 @@ class TestRubricCRUD:
 
     def test_update_rubric(self, client, sample_rubric_data):
         """Test updating an existing rubric."""
-        client.post("/api/rubric", json=sample_rubric_data)
+        client.put("/api/v2/rubrics/current", json=sample_rubric_data)
 
         updated_data = {
             "llm_traits": [
@@ -106,23 +106,23 @@ class TestRubricCRUD:
             ]
         }
 
-        response = client.post("/api/rubric", json=updated_data)
+        response = client.put("/api/v2/rubrics/current", json=updated_data)
         assert response.status_code == 200
 
-        get_response = client.get("/api/rubric")
+        get_response = client.get("/api/v2/rubrics/current")
         rubric_data = get_response.json()
         assert len(rubric_data["llm_traits"]) == 1
         assert rubric_data["llm_traits"][0]["name"] == "clarity"
 
     def test_delete_rubric(self, client, sample_rubric_data):
         """Test deleting a rubric."""
-        client.post("/api/rubric", json=sample_rubric_data)
+        client.put("/api/v2/rubrics/current", json=sample_rubric_data)
 
-        delete_response = client.delete("/api/rubric")
+        delete_response = client.delete("/api/v2/rubrics/current")
         assert delete_response.status_code == 200
         assert delete_response.json()["message"] == "Rubric deleted successfully"
 
-        get_response = client.get("/api/rubric")
+        get_response = client.get("/api/v2/rubrics/current")
         assert get_response.json() is None
 
 
@@ -142,7 +142,7 @@ class TestRubricValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=invalid_trait_data)
+        response = client.put("/api/v2/rubrics/current", json=invalid_trait_data)
         assert response.status_code == 422
 
     def test_rubric_invalid_trait_kind(self, client):
@@ -156,5 +156,5 @@ class TestRubricValidation:
                 }
             ]
         }
-        response = client.post("/api/rubric", json=invalid_kind_data)
+        response = client.put("/api/v2/rubrics/current", json=invalid_kind_data)
         assert response.status_code == 422

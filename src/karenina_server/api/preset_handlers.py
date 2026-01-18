@@ -140,9 +140,14 @@ def _generate_preset_summary(config_dict: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-@router.get("/presets", response_model=dict[str, list[PresetSummary]])
-async def list_presets() -> dict[str, list[PresetSummary]]:
-    """Get all presets with summary information."""
+# =============================================================================
+# V2 API Endpoints (RESTful)
+# =============================================================================
+
+
+@router.get("/v2/presets", response_model=dict[str, list[PresetSummary]])
+async def list_presets_v2() -> dict[str, list[PresetSummary]]:
+    """Get all presets with summary information (v2 endpoint)."""
     try:
         presets_dict = preset_service.list_presets()
 
@@ -172,9 +177,9 @@ async def list_presets() -> dict[str, list[PresetSummary]]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.get("/presets/{preset_id}", response_model=dict[str, PresetDetail])
-async def get_preset(preset_id: str) -> dict[str, PresetDetail]:
-    """Get a specific preset by ID."""
+@router.get("/v2/presets/{preset_id}", response_model=dict[str, PresetDetail])
+async def get_preset_v2(preset_id: str) -> dict[str, PresetDetail]:
+    """Get a specific preset by ID (v2 endpoint)."""
     try:
         preset_data = preset_service.get_preset(preset_id)
 
@@ -197,9 +202,9 @@ async def get_preset(preset_id: str) -> dict[str, PresetDetail]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.post("/presets", response_model=dict[str, Any], status_code=201)
-async def create_preset(request: CreatePresetRequest) -> dict[str, Any]:
-    """Create a new preset."""
+@router.post("/v2/presets", response_model=dict[str, Any], status_code=201)
+async def create_preset_v2(request: CreatePresetRequest) -> dict[str, Any]:
+    """Create a new preset (v2 endpoint)."""
     try:
         preset_data = preset_service.create_preset(
             name=request.name,
@@ -220,9 +225,9 @@ async def create_preset(request: CreatePresetRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.put("/presets/{preset_id}", response_model=dict[str, Any])
-async def update_preset(preset_id: str, request: UpdatePresetRequest) -> dict[str, Any]:
-    """Update an existing preset."""
+@router.put("/v2/presets/{preset_id}", response_model=dict[str, Any])
+async def update_preset_v2(preset_id: str, request: UpdatePresetRequest) -> dict[str, Any]:
+    """Update an existing preset (v2 endpoint)."""
     try:
         # Check if at least one field is provided
         if request.name is None and request.config is None and request.description is None:
@@ -251,9 +256,9 @@ async def update_preset(preset_id: str, request: UpdatePresetRequest) -> dict[st
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.delete("/presets/{preset_id}", response_model=dict[str, str])
-async def delete_preset(preset_id: str) -> dict[str, str]:
-    """Delete a preset."""
+@router.delete("/v2/presets/{preset_id}", response_model=dict[str, str])
+async def delete_preset_v2(preset_id: str) -> dict[str, str]:
+    """Delete a preset (v2 endpoint)."""
     try:
         preset_service.delete_preset(preset_id)
         return {"message": "Preset deleted successfully"}
@@ -266,9 +271,9 @@ async def delete_preset(preset_id: str) -> dict[str, str]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.get("/presets-status")
-async def get_presets_file_status() -> dict[str, Any]:
-    """Get status information about the presets file."""
+@router.get("/v2/presets-status")
+async def get_presets_file_status_v2() -> dict[str, Any]:
+    """Get status information about the presets file (v2 endpoint)."""
     try:
         return preset_service.get_directory_status()
     except Exception as e:

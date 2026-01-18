@@ -49,6 +49,15 @@ from karenina_server.schemas.template import (
     TemplateGenerationResponse,
     TemplateGenerationStatusResponse,
 )
+from karenina_server.schemas.verification import (
+    CompareModelsRequest,
+    CompareModelsResponse,
+    ComputeSummaryRequest,
+    ComputeSummaryResponse,
+    FinishedTemplatePayload,
+    StartVerificationRequest,
+    StartVerificationResponse,
+)
 
 __all__ = [
     # File schemas
@@ -93,4 +102,12 @@ __all__ = [
     "LoadVerificationResultsRequest",
     "VerificationResultSummary",
     "LoadVerificationResultsResponse",
+    # Verification schemas
+    "FinishedTemplatePayload",
+    "StartVerificationRequest",
+    "StartVerificationResponse",
+    "ComputeSummaryRequest",
+    "ComputeSummaryResponse",
+    "CompareModelsRequest",
+    "CompareModelsResponse",
 ]

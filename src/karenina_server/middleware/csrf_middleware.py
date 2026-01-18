@@ -36,6 +36,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/openapi.json",
             "/api/auth/csrf-token",
+            "/api/v2/auth/csrf-token",
             "/api/health",
         }
     )

@@ -1,8 +1,8 @@
 """Integration tests for summary statistics API handlers.
 
 Tests:
-- POST /api/verification/summary
-- POST /api/verification/compare-models
+- POST /api/v2/verifications/summary
+- POST /api/v2/verifications/compare
 """
 
 from pathlib import Path
@@ -139,35 +139,39 @@ class TestSummaryEndpoints:
     def test_summary_endpoint_all_results(self, client: TestClient, sample_results: dict[str, Any]) -> None:
         """Test summary endpoint with all results."""
         response = client.post(
-            "/api/verification/summary",
+            "/api/v2/verifications/summary",
             json={"results": sample_results, "run_name": None},
         )
 
         assert response.status_code == 200
         data = response.json()
 
-        assert data["num_results"] == 3
-        assert data["num_completed"] == 3
-        assert data["num_questions"] == 2
-        assert data["num_models"] == 2
-        assert data["tokens"]["total_input"] == 370
-        assert data["tokens"]["total_output"] == 150
+        # Response follows envelope pattern with success and summary fields
+        assert data["success"] is True
+        summary = data["summary"]
+        assert summary["num_results"] == 3
+        assert summary["num_completed"] == 3
+        assert summary["num_questions"] == 2
+        assert summary["num_models"] == 2
+        assert summary["tokens"]["total_input"] == 370
+        assert summary["tokens"]["total_output"] == 150
 
     def test_summary_endpoint_filtered_by_run_name(self, client: TestClient, sample_results: dict[str, Any]) -> None:
         """Test summary endpoint with run_name filter."""
         response = client.post(
-            "/api/verification/summary",
+            "/api/v2/verifications/summary",
             json={"results": sample_results, "run_name": "test-run-1"},
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["num_results"] == 3
+        assert data["success"] is True
+        assert data["summary"]["num_results"] == 3
 
     def test_summary_endpoint_no_results(self, client: TestClient) -> None:
         """Test summary endpoint with empty results."""
         response = client.post(
-            "/api/verification/summary",
+            "/api/v2/verifications/summary",
             json={"results": {}, "run_name": None},
         )
 
@@ -183,7 +187,7 @@ class TestCompareModelsEndpoints:
     def test_compare_models_endpoint(self, client: TestClient, sample_results: dict[str, Any]) -> None:
         """Test model comparison endpoint."""
         response = client.post(
-            "/api/verification/compare-models",
+            "/api/v2/verifications/compare",
             json={
                 "results": sample_results,
                 "models": [
@@ -196,13 +200,15 @@ class TestCompareModelsEndpoints:
 
         assert response.status_code == 200
         data = response.json()
+        # Response follows envelope pattern with success field
+        assert data["success"] is True
         assert "model_summaries" in data
         assert len(data["model_summaries"]) == 2
 
     def test_compare_models_no_models(self, client: TestClient, sample_results: dict[str, Any]) -> None:
         """Test model comparison with no models specified."""
         response = client.post(
-            "/api/verification/compare-models",
+            "/api/v2/verifications/compare",
             json={
                 "results": sample_results,
                 "models": [],
@@ -216,7 +222,7 @@ class TestCompareModelsEndpoints:
     def test_compare_models_no_results(self, client: TestClient) -> None:
         """Test model comparison with empty results."""
         response = client.post(
-            "/api/verification/compare-models",
+            "/api/v2/verifications/compare",
             json={
                 "results": {},
                 "models": [{"answering_model": "gpt-4o-mini", "mcp_config": "[]"}],

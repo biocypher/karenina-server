@@ -92,9 +92,14 @@ class DefaultConfig(BaseModel):
     default_endpoint_base_url: str | None = None  # for openai_endpoint interface
 
 
-@router.get("/env-vars", response_model=dict[str, str])
-async def get_env_vars() -> dict[str, str]:
-    """Get current environment variables (masked for security)."""
+# =============================================================================
+# V2 API Endpoints (RESTful)
+# =============================================================================
+
+
+@router.get("/v2/config/env-vars", response_model=dict[str, str])
+async def get_env_vars_v2() -> dict[str, str]:
+    """Get current environment variables - masked (v2 endpoint)."""
     try:
         return config_service.read_env_vars(mask_secrets=True)
     except Exception as e:
@@ -102,20 +107,19 @@ async def get_env_vars() -> dict[str, str]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.get("/env-file")
-async def get_env_file_contents() -> dict[str, str]:
-    """Get raw .env file contents."""
+@router.get("/v2/config/env-vars/unmasked", response_model=dict[str, str])
+async def get_env_vars_unmasked_v2() -> dict[str, str]:
+    """Get current environment variables - unmasked (v2 endpoint)."""
     try:
-        content = config_service.get_env_file_contents()
-        return {"content": content}
+        return config_service.read_env_vars(mask_secrets=False)
     except Exception as e:
-        logger.error(f"Error reading .env file: {e}")
+        logger.error(f"Error reading environment variables: {e}")
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.put("/env-vars")
-async def update_env_var(update: EnvVarUpdate) -> dict[str, str]:
-    """Update a single environment variable."""
+@router.put("/v2/config/env-vars")
+async def update_env_var_v2(update: EnvVarUpdate) -> dict[str, str]:
+    """Update a single environment variable (v2 endpoint)."""
     try:
         config_service.update_env_var(update.key, update.value)
         return {"message": f"Successfully updated {update.key}"}
@@ -126,9 +130,9 @@ async def update_env_var(update: EnvVarUpdate) -> dict[str, str]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.put("/env-vars/bulk")
-async def update_env_vars_bulk(update: EnvVarBulkUpdate) -> dict[str, str | list[str]]:
-    """Update multiple environment variables atomically."""
+@router.put("/v2/config/env-vars/bulk")
+async def update_env_vars_bulk_v2(update: EnvVarBulkUpdate) -> dict[str, str | list[str]]:
+    """Update multiple environment variables atomically (v2 endpoint)."""
     try:
         # Convert to list of tuples for the service method
         updates = [(var.key, var.value) for var in update.variables]
@@ -146,20 +150,9 @@ async def update_env_vars_bulk(update: EnvVarBulkUpdate) -> dict[str, str | list
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.put("/env-file")
-async def update_env_file(update: EnvFileUpdate) -> dict[str, str]:
-    """Update the entire .env file contents."""
-    try:
-        config_service.update_env_file_contents(update.content)
-        return {"message": "Successfully updated .env file"}
-    except Exception as e:
-        logger.error(f"Error updating .env file: {e}")
-        raise HTTPException(status_code=500, detail=sanitize_error_message(e))
-
-
-@router.delete("/env-vars/{key}")
-async def delete_env_var(key: str) -> dict[str, str]:
-    """Remove an environment variable."""
+@router.delete("/v2/config/env-vars/{key}")
+async def delete_env_var_v2(key: str) -> dict[str, str]:
+    """Remove an environment variable (v2 endpoint)."""
     try:
         config_service.remove_env_var(key)
         return {"message": f"Successfully removed {key}"}
@@ -168,22 +161,31 @@ async def delete_env_var(key: str) -> dict[str, str]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.get("/status", response_model=ConfigStatus)
-async def get_config_status() -> ConfigStatus:
-    """Get configuration status."""
+@router.get("/v2/config/env-file")
+async def get_env_file_contents_v2() -> dict[str, str]:
+    """Get raw .env file contents (v2 endpoint)."""
     try:
-        # Get masked environment variables
-        variables = config_service.read_env_vars(mask_secrets=True)
-
-        return ConfigStatus(variables=variables)
+        content = config_service.get_env_file_contents()
+        return {"content": content}
     except Exception as e:
-        logger.error(f"Error getting configuration status: {e}")
+        logger.error(f"Error reading .env file: {e}")
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.get("/defaults", response_model=DefaultConfig)
-async def get_default_config() -> DefaultConfig:
-    """Get default LLM configuration settings."""
+@router.put("/v2/config/env-file")
+async def update_env_file_v2(update: EnvFileUpdate) -> dict[str, str]:
+    """Update the entire .env file contents (v2 endpoint)."""
+    try:
+        config_service.update_env_file_contents(update.content)
+        return {"message": "Successfully updated .env file"}
+    except Exception as e:
+        logger.error(f"Error updating .env file: {e}")
+        raise HTTPException(status_code=500, detail=sanitize_error_message(e))
+
+
+@router.get("/v2/config/defaults", response_model=DefaultConfig)
+async def get_default_config_v2() -> DefaultConfig:
+    """Get default LLM configuration settings (v2 endpoint)."""
     try:
         defaults = defaults_service.get_defaults()
         # These fields are guaranteed to exist and be strings due to fallback defaults
@@ -205,9 +207,9 @@ async def get_default_config() -> DefaultConfig:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.put("/defaults")
-async def update_default_config(config: DefaultConfig) -> dict[str, str | dict[str, str | None]]:
-    """Update default LLM configuration settings."""
+@router.put("/v2/config/defaults")
+async def update_default_config_v2(config: DefaultConfig) -> dict[str, str | dict[str, str | None]]:
+    """Update default LLM configuration settings (v2 endpoint)."""
     try:
         defaults_dict = {
             "default_interface": config.default_interface,
@@ -226,9 +228,9 @@ async def update_default_config(config: DefaultConfig) -> dict[str, str | dict[s
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.get("/defaults/status")
-async def get_defaults_file_status() -> dict[str, Any]:
-    """Get status information about the defaults file."""
+@router.get("/v2/config/defaults/status")
+async def get_defaults_file_status_v2() -> dict[str, Any]:
+    """Get status information about the defaults file (v2 endpoint)."""
     try:
         return defaults_service.get_file_status()
     except Exception as e:
@@ -236,9 +238,9 @@ async def get_defaults_file_status() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=sanitize_error_message(e))
 
 
-@router.post("/defaults/reset")
-async def reset_defaults() -> dict[str, str]:
-    """Reset defaults to fallback values."""
+@router.post("/v2/config/defaults/reset")
+async def reset_defaults_v2() -> dict[str, str]:
+    """Reset defaults to fallback values (v2 endpoint)."""
     try:
         defaults_service.reset_to_fallback()
         return {"message": "Defaults reset to fallback values"}

@@ -430,6 +430,20 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Register global exception handler for custom API errors
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    from .exceptions import APIError
+
+    @app.exception_handler(APIError)
+    async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:  # noqa: ARG001
+        """Handle custom API errors and map them to appropriate HTTP responses."""
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail, **exc.extra},
+        )
+
     # Register API routes from extracted handlers
     # Add CORS middleware to allow requests from the frontend dev server
     from fastapi.middleware.cors import CORSMiddleware
@@ -468,7 +482,8 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
 
     # Register all route handlers
     register_file_routes(app, FilePreviewResponse, ExtractQuestionsRequest, ExtractQuestionsResponse)
-    register_verification_routes(app, verification_service)
+    if verification_service is not None:
+        register_verification_routes(app, verification_service)
     register_generation_routes(
         app, TemplateGenerationRequest, TemplateGenerationResponse, TemplateGenerationStatusResponse
     )
@@ -505,6 +520,7 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
     app.include_router(config_router, prefix="/api/config")
+    app.include_router(config_router, prefix="/api")  # V2 endpoints at /api/v2/config/...
     app.include_router(preset_router, prefix="/api")
 
     # Note: Event loop setup and shutdown are handled by lifespan context manager (conc-001)

@@ -132,11 +132,11 @@ def complex_preset_data():
 @pytest.mark.integration
 @pytest.mark.api
 class TestPresetList:
-    """Test GET /api/presets - list all presets."""
+    """Test GET /api/v2/presets - list all presets."""
 
     def test_list_presets_empty(self, client):
         """Test listing presets when none exist."""
-        response = client.get("/api/presets")
+        response = client.get("/api/v2/presets")
         assert response.status_code == 200
         data = response.json()
         assert "presets" in data
@@ -144,22 +144,22 @@ class TestPresetList:
 
     def test_list_presets_with_data(self, client, sample_preset_data):
         """Test listing presets with existing data."""
-        client.post("/api/presets", json=sample_preset_data)
+        client.post("/api/v2/presets", json=sample_preset_data)
         sample_preset_data2 = sample_preset_data.copy()
         sample_preset_data2["name"] = "Second Preset"
-        client.post("/api/presets", json=sample_preset_data2)
+        client.post("/api/v2/presets", json=sample_preset_data2)
 
-        response = client.get("/api/presets")
+        response = client.get("/api/v2/presets")
         assert response.status_code == 200
         data = response.json()
         assert len(data["presets"]) == 2
 
     def test_list_presets_summary_features(self, client, complex_preset_data):
         """Test that list includes correct enabled features in summary."""
-        response = client.post("/api/presets", json=complex_preset_data)
+        response = client.post("/api/v2/presets", json=complex_preset_data)
         assert response.status_code == 201
 
-        response = client.get("/api/presets")
+        response = client.get("/api/v2/presets")
         data = response.json()
         preset = data["presets"][0]
         features = preset["summary"]["enabled_features"]
@@ -172,11 +172,11 @@ class TestPresetList:
 @pytest.mark.integration
 @pytest.mark.api
 class TestPresetCreate:
-    """Test POST /api/presets - create preset."""
+    """Test POST /api/v2/presets - create preset."""
 
     def test_create_preset_success(self, client, sample_preset_data):
         """Test successful preset creation."""
-        response = client.post("/api/presets", json=sample_preset_data)
+        response = client.post("/api/v2/presets", json=sample_preset_data)
         assert response.status_code == 201
         data = response.json()
         assert "preset" in data
@@ -185,82 +185,82 @@ class TestPresetCreate:
 
     def test_create_preset_duplicate_name(self, client, sample_preset_data):
         """Test that duplicate names are rejected."""
-        response = client.post("/api/presets", json=sample_preset_data)
+        response = client.post("/api/v2/presets", json=sample_preset_data)
         assert response.status_code == 201
-        response = client.post("/api/presets", json=sample_preset_data)
+        response = client.post("/api/v2/presets", json=sample_preset_data)
         assert response.status_code == 400
         assert "already exists" in response.json()["detail"]
 
     def test_create_preset_empty_name(self, client, sample_preset_data):
         """Test that empty names are rejected."""
         sample_preset_data["name"] = ""
-        response = client.post("/api/presets", json=sample_preset_data)
+        response = client.post("/api/v2/presets", json=sample_preset_data)
         assert response.status_code == 422
 
 
 @pytest.mark.integration
 @pytest.mark.api
 class TestPresetGet:
-    """Test GET /api/presets/{preset_id} - get specific preset."""
+    """Test GET /api/v2/presets/{preset_id} - get specific preset."""
 
     def test_get_preset_success(self, client, sample_preset_data):
         """Test successful preset retrieval."""
-        create_response = client.post("/api/presets", json=sample_preset_data)
+        create_response = client.post("/api/v2/presets", json=sample_preset_data)
         preset_id = create_response.json()["preset"]["id"]
 
-        response = client.get(f"/api/presets/{preset_id}")
+        response = client.get(f"/api/v2/presets/{preset_id}")
         assert response.status_code == 200
         assert response.json()["preset"]["name"] == "Test Preset"
 
     def test_get_preset_not_found(self, client):
         """Test retrieving non-existent preset."""
         fake_id = "00000000-0000-0000-0000-000000000000"
-        response = client.get(f"/api/presets/{fake_id}")
+        response = client.get(f"/api/v2/presets/{fake_id}")
         assert response.status_code == 404
 
 
 @pytest.mark.integration
 @pytest.mark.api
 class TestPresetUpdate:
-    """Test PUT /api/presets/{preset_id} - update preset."""
+    """Test PUT /api/v2/presets/{preset_id} - update preset."""
 
     def test_update_preset_name(self, client, sample_preset_data):
         """Test updating preset name."""
-        create_response = client.post("/api/presets", json=sample_preset_data)
+        create_response = client.post("/api/v2/presets", json=sample_preset_data)
         preset_id = create_response.json()["preset"]["id"]
 
         update_data = {"name": "Updated Name"}
-        response = client.put(f"/api/presets/{preset_id}", json=update_data)
+        response = client.put(f"/api/v2/presets/{preset_id}", json=update_data)
         assert response.status_code == 200
         assert response.json()["preset"]["name"] == "Updated Name"
 
     def test_update_preset_not_found(self, client):
         """Test updating non-existent preset."""
         fake_id = "00000000-0000-0000-0000-000000000000"
-        response = client.put(f"/api/presets/{fake_id}", json={"name": "New Name"})
+        response = client.put(f"/api/v2/presets/{fake_id}", json={"name": "New Name"})
         assert response.status_code == 404
 
 
 @pytest.mark.integration
 @pytest.mark.api
 class TestPresetDelete:
-    """Test DELETE /api/presets/{preset_id} - delete preset."""
+    """Test DELETE /api/v2/presets/{preset_id} - delete preset."""
 
     def test_delete_preset_success(self, client, sample_preset_data):
         """Test successful preset deletion."""
-        create_response = client.post("/api/presets", json=sample_preset_data)
+        create_response = client.post("/api/v2/presets", json=sample_preset_data)
         preset_id = create_response.json()["preset"]["id"]
 
-        response = client.delete(f"/api/presets/{preset_id}")
+        response = client.delete(f"/api/v2/presets/{preset_id}")
         assert response.status_code == 200
 
-        get_response = client.get(f"/api/presets/{preset_id}")
+        get_response = client.get(f"/api/v2/presets/{preset_id}")
         assert get_response.status_code == 404
 
     def test_delete_preset_not_found(self, client):
         """Test deleting non-existent preset."""
         fake_id = "00000000-0000-0000-0000-000000000000"
-        response = client.delete(f"/api/presets/{fake_id}")
+        response = client.delete(f"/api/v2/presets/{fake_id}")
         assert response.status_code == 404
 
 
@@ -272,26 +272,26 @@ class TestPresetIntegration:
     def test_full_crud_workflow(self, client, sample_preset_data):
         """Test complete CRUD workflow."""
         # Create
-        create_response = client.post("/api/presets", json=sample_preset_data)
+        create_response = client.post("/api/v2/presets", json=sample_preset_data)
         assert create_response.status_code == 201
         preset_id = create_response.json()["preset"]["id"]
 
         # Read
-        get_response = client.get(f"/api/presets/{preset_id}")
+        get_response = client.get(f"/api/v2/presets/{preset_id}")
         assert get_response.status_code == 200
 
         # Update
-        update_response = client.put(f"/api/presets/{preset_id}", json={"name": "Updated"})
+        update_response = client.put(f"/api/v2/presets/{preset_id}", json={"name": "Updated"})
         assert update_response.status_code == 200
 
         # List
-        list_response = client.get("/api/presets")
+        list_response = client.get("/api/v2/presets")
         assert len(list_response.json()["presets"]) == 1
 
         # Delete
-        delete_response = client.delete(f"/api/presets/{preset_id}")
+        delete_response = client.delete(f"/api/v2/presets/{preset_id}")
         assert delete_response.status_code == 200
 
         # Verify deletion
-        get_response = client.get(f"/api/presets/{preset_id}")
+        get_response = client.get(f"/api/v2/presets/{preset_id}")
         assert get_response.status_code == 404

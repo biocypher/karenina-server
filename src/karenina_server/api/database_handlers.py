@@ -140,7 +140,7 @@ def register_database_routes(
     DatabaseConnectRequest: Any,
     DatabaseConnectResponse: Any,
     BenchmarkListResponse: Any,
-    BenchmarkLoadRequest: Any,
+    _BenchmarkLoadRequest: Any,  # Unused: no v2 load endpoint yet
     BenchmarkLoadResponse: Any,
     BenchmarkCreateRequest: Any,
     BenchmarkCreateResponse: Any,
@@ -150,23 +150,43 @@ def register_database_routes(
     DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
     DeleteDatabaseRequest: Any,
-    DeleteDatabaseResponse: Any,
-    DeleteBenchmarkRequest: Any,
+    _DeleteDatabaseResponse: Any,  # Unused: endpoint returns 204 No Content
+    _DeleteBenchmarkRequest: Any,  # Unused: no v2 delete benchmark endpoint yet
     DeleteBenchmarkResponse: Any,
     ImportResultsRequest: Any,
     ImportResultsResponse: Any,
-    ListVerificationRunsRequest: Any,
+    _ListVerificationRunsRequest: Any,  # Unused: no v2 list verification runs endpoint yet
     ListVerificationRunsResponse: Any,
-    LoadVerificationResultsRequest: Any,
+    _LoadVerificationResultsRequest: Any,  # Unused: no v2 load verification results endpoint yet
     LoadVerificationResultsResponse: Any,
 ) -> None:
-    """Register database management routes."""
+    """Register database management routes.
 
-    @app.post("/api/database/connect", response_model=DatabaseConnectResponse)  # type: ignore[misc]
-    async def connect_database_endpoint(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
+    V2 Routes (RESTful, noun-based naming):
+        POST /api/v2/databases/connections - Connect to database
+        GET /api/v2/benchmarks - List benchmarks
+        GET /api/v2/benchmarks/{name} - Get benchmark
+        POST /api/v2/benchmarks - Create benchmark
+        PUT /api/v2/benchmarks/{name} - Update benchmark
+        POST /api/v2/benchmarks/{name}/duplicates - Resolve duplicates
+        POST /api/v2/databases - Initialize database
+        GET /api/v2/databases - List databases
+        DELETE /api/v2/databases - Delete database
+        DELETE /api/v2/benchmarks/{name} - Delete benchmark
+        POST /api/v2/benchmarks/{name}/results - Import results
+        GET /api/v2/verification-runs - List verification runs
+        GET /api/v2/verification-results - Get verification results
+    """
+
+    @app.post("/api/v2/databases/connections", response_model=DatabaseConnectResponse)  # type: ignore[misc]
+    async def connect_database_v2(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
         """Connect to or create a database."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        from ..exceptions import ServiceUnavailableError, ValidationError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Create database configuration
@@ -190,14 +210,22 @@ def register_database_routes(
                 message=f"Successfully connected to database. Found {benchmark_count} benchmarks.",
             )
 
+        except PydanticValidationError as e:
+            # Invalid URL format from DBConfig validation
+            raise ValidationError(f"Invalid database URL format: {e!s}") from e
+        except ValueError as e:
+            # Also catch ValueError from DBConfig field_validator
+            raise ValidationError(f"Invalid database URL: {e!s}") from e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error connecting to database: {e!s}") from e
 
-    @app.get("/api/database/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
-    async def list_benchmarks_endpoint(storage_url: str) -> BenchmarkListResponse:
+    @app.get("/api/v2/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
+    async def list_benchmarks_v2(storage_url: str) -> BenchmarkListResponse:
         """List all benchmarks in the database."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             db_config = DBConfig(storage_url=storage_url)
@@ -221,21 +249,23 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing benchmarks: {e!s}") from e
 
-    @app.post("/api/database/load-benchmark", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
-    async def load_benchmark_endpoint(request: BenchmarkLoadRequest) -> BenchmarkLoadResponse:
+    @app.get("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
+    async def get_benchmark_v2(benchmark_name: str, storage_url: str) -> BenchmarkLoadResponse:
         """Load a benchmark from the database."""
+        from ..exceptions import NotFoundError, ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             from datetime import datetime
 
             from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, get_session
 
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             # Load benchmark
-            benchmark, loaded_config = load_benchmark(request.benchmark_name, db_config, load_config=True)
+            benchmark, loaded_config = load_benchmark(benchmark_name, db_config, load_config=True)
 
             # Query database for updated_at timestamps
             updated_at_map = {}
@@ -244,7 +274,7 @@ def register_database_routes(
                 from sqlalchemy import select
 
                 benchmark_model = session.execute(
-                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                    select(BenchmarkModel).where(BenchmarkModel.name == benchmark_name)
                 ).scalar_one_or_none()
 
                 if benchmark_model:
@@ -318,22 +348,24 @@ def register_database_routes(
 
             return BenchmarkLoadResponse(
                 success=True,
-                benchmark_name=request.benchmark_name,
+                benchmark_name=benchmark_name,
                 checkpoint_data=checkpoint_data,
-                storage_url=request.storage_url,
-                message=f"Successfully loaded benchmark '{request.benchmark_name}' from database",
+                storage_url=storage_url,
+                message=f"Successfully loaded benchmark '{benchmark_name}' from database",
             )
 
         except ValueError as e:
-            raise HTTPException(status_code=404, detail=f"Benchmark not found: {e!s}") from e
+            raise NotFoundError(f"Benchmark not found: {e!s}") from e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading benchmark: {e!s}") from e
 
-    @app.post("/api/database/create-benchmark", response_model=BenchmarkCreateResponse)  # type: ignore[misc]
-    async def create_benchmark_endpoint(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
+    @app.post("/api/v2/benchmarks", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
+    async def create_benchmark_v2(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
         """Create a new empty benchmark in the database."""
+        from ..exceptions import ConflictError, ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Import Benchmark class here to avoid circular imports
@@ -345,7 +377,9 @@ def register_database_routes(
             try:
                 summaries = get_benchmark_summary(db_config, benchmark_name=request.name)
                 if summaries:
-                    raise HTTPException(status_code=400, detail=f"Benchmark '{request.name}' already exists")
+                    raise ConflictError(f"Benchmark '{request.name}' already exists")
+            except ConflictError:
+                raise
             except Exception:
                 # Database may not exist yet, which is fine
                 pass
@@ -382,16 +416,18 @@ def register_database_routes(
                 message=f"Successfully created benchmark '{request.name}' in database",
             )
 
-        except HTTPException:
+        except (HTTPException, ConflictError, ServiceUnavailableError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error creating benchmark: {e!s}") from e
 
-    @app.post("/api/database/save-benchmark", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
-    async def save_benchmark_endpoint(request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
+    @app.put("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
+    async def update_benchmark_v2(benchmark_name: str, request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
         """Save current checkpoint data to the database."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Import required classes
@@ -405,7 +441,7 @@ def register_database_routes(
 
             # Create benchmark instance
             benchmark = Benchmark.create(
-                name=request.benchmark_name,
+                name=benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
                 creator=_normalize_creator_name(metadata.get("creator")),
@@ -465,7 +501,7 @@ def register_database_routes(
             # Normal save response
             return BenchmarkSaveResponse(
                 success=True,
-                message=f"Benchmark '{request.benchmark_name}' saved successfully",
+                message=f"Benchmark '{benchmark_name}' saved successfully",
                 last_modified=last_modified,
                 duplicates=None,
             )
@@ -473,11 +509,15 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error saving benchmark: {e!s}") from e
 
-    @app.post("/api/database/resolve-duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
-    async def resolve_duplicates_endpoint(request: DuplicateResolutionRequest) -> DuplicateResolutionResponse:
+    @app.post("/api/v2/benchmarks/{benchmark_name}/duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
+    async def resolve_benchmark_duplicates_v2(
+        benchmark_name: str, request: DuplicateResolutionRequest
+    ) -> DuplicateResolutionResponse:
         """Resolve duplicate questions by applying user's choices (keep_old vs keep_new)."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             # Import required classes
@@ -489,9 +529,9 @@ def register_database_routes(
             # Get dataset metadata from checkpoint
             metadata = request.checkpoint_data.get("dataset_metadata", {})
 
-            # Create benchmark instance
+            # Create benchmark instance (use benchmark_name from URL path)
             benchmark = Benchmark.create(
-                name=request.benchmark_name,
+                name=benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
                 creator=_normalize_creator_name(metadata.get("creator")),
@@ -563,30 +603,34 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error resolving duplicates: {e!s}") from e
 
-    @app.post("/api/database/init")  # type: ignore[misc]
-    async def init_database_endpoint(request: dict[str, Any]) -> dict[str, Any]:
+    @app.post("/api/v2/databases")  # type: ignore[misc]
+    async def init_database_v2(request: dict[str, Any]) -> dict[str, Any]:
         """Initialize a new database."""
+        from ..exceptions import ServiceUnavailableError, ValidationError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             storage_url = request.get("storage_url")
             if not storage_url:
-                raise HTTPException(status_code=400, detail="storage_url is required")
+                raise ValidationError("storage_url is required")
 
             db_config = DBConfig(storage_url=storage_url)
             init_database(db_config)
 
             return {"success": True, "storage_url": storage_url, "message": "Database initialized successfully"}
 
-        except HTTPException:
+        except (HTTPException, ValidationError, ServiceUnavailableError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error initializing database: {e!s}") from e
 
-    @app.get("/api/database/list-databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
-    async def list_databases_endpoint() -> ListDatabasesResponse:
+    @app.get("/api/v2/databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
+    async def list_databases_v2() -> ListDatabasesResponse:
         """List all .db files in the DB_PATH directory."""
+        from ..exceptions import NotFoundError
+
         try:
             # Get DB_PATH from environment, default to current working directory
             db_path = os.environ.get("DB_PATH")
@@ -595,7 +639,7 @@ def register_database_routes(
 
             # Ensure directory exists
             if not db_directory.exists():
-                raise HTTPException(status_code=404, detail=f"Database directory not found: {db_directory.absolute()}")
+                raise NotFoundError(f"Database directory not found: {db_directory.absolute()}")
 
             # Find all .db files
             databases = []
@@ -618,13 +662,13 @@ def register_database_routes(
                 is_default_directory=is_default,
             )
 
-        except HTTPException:
+        except (HTTPException, NotFoundError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
 
-    @app.delete("/api/database/delete", response_model=DeleteDatabaseResponse)  # type: ignore[misc]
-    async def delete_database_endpoint(request: DeleteDatabaseRequest) -> DeleteDatabaseResponse:
+    @app.delete("/api/v2/databases", status_code=204)  # type: ignore[misc]
+    async def delete_database_v2(request: DeleteDatabaseRequest) -> None:
         """Delete a SQLite database file.
 
         Only works for SQLite databases. The database file must be in the DB_PATH directory
@@ -635,25 +679,24 @@ def register_database_routes(
         - Database must be within the allowed directory
         - Closes any active connections before deletion
         """
+        from ..exceptions import ForbiddenError, NotFoundError, ValidationError
+
         try:
             storage_url = request.storage_url
 
             # Validate it's a SQLite URL
             if not storage_url.startswith("sqlite:///"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Only SQLite databases can be deleted. URL must start with 'sqlite:///'",
-                )
+                raise ValidationError("Only SQLite databases can be deleted. URL must start with 'sqlite:///'")
 
             # Extract the file path from the URL
             db_path = Path(storage_url.replace("sqlite:///", ""))
 
             # Validate the file exists
             if not db_path.exists():
-                raise HTTPException(status_code=404, detail=f"Database file not found: {db_path}")
+                raise NotFoundError(f"Database file not found: {db_path}")
 
             if not db_path.is_file():
-                raise HTTPException(status_code=400, detail=f"Path is not a file: {db_path}")
+                raise ValidationError(f"Path is not a file: {db_path}")
 
             # Validate the file is within the allowed directory
             db_directory = os.environ.get("DB_PATH")
@@ -661,10 +704,7 @@ def register_database_routes(
             db_path_resolved = db_path.resolve()
 
             if not str(db_path_resolved).startswith(str(allowed_dir)):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Cannot delete database outside of allowed directory: {allowed_dir}",
-                )
+                raise ForbiddenError(f"Cannot delete database outside of allowed directory: {allowed_dir}")
 
             # Close any active connections to this database
             if STORAGE_AVAILABLE:
@@ -677,21 +717,17 @@ def register_database_routes(
                     pass  # Ignore errors closing connections
 
             # Delete the file
-            db_name = db_path.name
             db_path.unlink()
+            # Return None for 204 No Content response
+            return None
 
-            return DeleteDatabaseResponse(
-                success=True,
-                message=f"Successfully deleted database: {db_name}",
-            )
-
-        except HTTPException:
+        except (HTTPException, ValidationError, NotFoundError, ForbiddenError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting database: {e!s}") from e
 
-    @app.delete("/api/database/delete-benchmark", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
-    async def delete_benchmark_endpoint(request: DeleteBenchmarkRequest) -> DeleteBenchmarkResponse:
+    @app.delete("/api/v2/benchmarks/{benchmark_name}", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
+    async def delete_benchmark_v2(benchmark_name: str, storage_url: str) -> DeleteBenchmarkResponse:
         """Delete a benchmark and all its associated data.
 
         This will delete:
@@ -699,26 +735,25 @@ def register_database_routes(
         - All questions associated with the benchmark
         - All verification runs and results associated with the benchmark
         """
+        from ..exceptions import NotFoundError, ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, VerificationRunModel
             from sqlalchemy import func, select
 
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             with get_session(db_config) as session:
                 # Find the benchmark
                 benchmark = session.execute(
-                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                    select(BenchmarkModel).where(BenchmarkModel.name == benchmark_name)
                 ).scalar_one_or_none()
 
                 if not benchmark:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Benchmark '{request.benchmark_name}' not found",
-                    )
+                    raise NotFoundError(f"Benchmark '{benchmark_name}' not found")
 
                 # Count associated data for the response
                 question_count = (
@@ -745,12 +780,12 @@ def register_database_routes(
 
                 return DeleteBenchmarkResponse(
                     success=True,
-                    message=f"Successfully deleted benchmark '{request.benchmark_name}'",
+                    message=f"Successfully deleted benchmark '{benchmark_name}'",
                     deleted_questions=question_count,
                     deleted_runs=run_count,
                 )
 
-        except HTTPException:
+        except (HTTPException, NotFoundError, ServiceUnavailableError):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting benchmark: {e!s}") from e
@@ -759,20 +794,22 @@ def register_database_routes(
     # Verification Results Import/Export Endpoints
     # =========================================================================
 
-    @app.post("/api/database/import-results", response_model=ImportResultsResponse)  # type: ignore[misc]
-    async def import_results_endpoint(request: ImportResultsRequest) -> ImportResultsResponse:
+    @app.post("/api/v2/benchmarks/{benchmark_name}/results", response_model=ImportResultsResponse)  # type: ignore[misc]
+    async def import_benchmark_results_v2(benchmark_name: str, request: ImportResultsRequest) -> ImportResultsResponse:
         """Import verification results from JSON export format."""
+        from ..exceptions import ServiceUnavailableError, ValidationError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             db_config = DBConfig(storage_url=request.storage_url)
 
-            # Import the results
+            # Import the results (use benchmark_name from URL path)
             run_id, imported_count, skipped_count = import_verification_results(
                 json_data=request.json_data,
                 db_config=db_config,
-                benchmark_name=request.benchmark_name,
+                benchmark_name=benchmark_name,
                 run_name=request.run_name,
             )
 
@@ -784,20 +821,26 @@ def register_database_routes(
             )
 
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+            raise ValidationError(str(e)) from e
+        except ServiceUnavailableError:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error importing results: {e!s}") from e
 
-    @app.post("/api/database/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
-    async def list_verification_runs_endpoint(request: ListVerificationRunsRequest) -> ListVerificationRunsResponse:
+    @app.get("/api/v2/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
+    async def list_verification_runs_v2(
+        storage_url: str, benchmark_name: str | None = None
+    ) -> ListVerificationRunsResponse:
         """List all verification runs in the database."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
             from sqlalchemy import select
 
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             runs = []
             with get_session(db_config) as session:
@@ -805,11 +848,11 @@ def register_database_routes(
                 query = select(VerificationRunModel)
 
                 # Filter by benchmark if specified
-                if request.benchmark_name:
+                if benchmark_name:
                     from karenina.storage import BenchmarkModel
 
                     benchmark = session.execute(
-                        select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                        select(BenchmarkModel).where(BenchmarkModel.name == benchmark_name)
                     ).scalar_one_or_none()
                     if benchmark:
                         query = query.where(VerificationRunModel.benchmark_id == benchmark.id)
@@ -830,14 +873,14 @@ def register_database_routes(
                     from karenina.storage import BenchmarkModel
 
                     benchmark = session.get(BenchmarkModel, run.benchmark_id)
-                    benchmark_name = benchmark.name if benchmark else "Unknown"
+                    run_benchmark_name = benchmark.name if benchmark else "Unknown"
 
                     runs.append(
                         {
                             "id": run.id,
                             "run_name": run.run_name,
                             "benchmark_id": run.benchmark_id,
-                            "benchmark_name": benchmark_name,
+                            "benchmark_name": run_benchmark_name,
                             "status": run.status,
                             "total_questions": run.total_questions or 0,
                             "processed_count": run.processed_count or 0,
@@ -859,25 +902,32 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing verification runs: {e!s}") from e
 
-    @app.post("/api/database/load-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
-    async def load_verification_results_endpoint(
-        request: LoadVerificationResultsRequest,
+    @app.get("/api/v2/verification-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
+    async def get_verification_results_v2(
+        storage_url: str,
+        run_id: int | None = None,
+        benchmark_name: str | None = None,
+        question_id: str | None = None,
+        answering_model: str | None = None,
+        limit: int | None = None,
     ) -> LoadVerificationResultsResponse:
         """Load verification results with filtering options."""
+        from ..exceptions import ServiceUnavailableError
+
         if not STORAGE_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Storage functionality not available")
+            raise ServiceUnavailableError("Storage functionality not available")
 
         try:
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             # Load results using the storage function with as_dict=False for list format
             results = load_verification_results(
                 db_config=db_config,
-                run_id=request.run_id,
-                benchmark_name=request.benchmark_name,
-                question_id=request.question_id,
-                answering_model=request.answering_model,
-                limit=request.limit,
+                run_id=run_id,
+                benchmark_name=benchmark_name,
+                question_id=question_id,
+                answering_model=answering_model,
+                limit=limit,
                 as_dict=False,
             )
 

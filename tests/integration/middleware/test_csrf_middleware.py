@@ -40,24 +40,24 @@ class TestCsrfMiddleware:
 
     def test_get_requests_exempt(self, client):
         """Test that GET requests are exempt from CSRF protection."""
-        response = client.get("/api/presets")
+        response = client.get("/api/v2/presets")
         assert response.status_code == 200
 
     def test_head_requests_exempt(self, client):
         """Test that HEAD requests are exempt from CSRF protection."""
-        response = client.head("/api/presets")
+        response = client.head("/api/v2/presets")
         # HEAD might not be implemented (405) but should not be CSRF blocked (403)
         assert response.status_code in [200, 405]
 
     def test_options_requests_exempt(self, client):
         """Test that OPTIONS requests are exempt from CSRF protection."""
-        response = client.options("/api/presets")
+        response = client.options("/api/v2/presets")
         # FastAPI might return 405 if OPTIONS not explicitly handled
         assert response.status_code in [200, 405]
 
     def test_post_without_csrf_token_fails(self, client):
         """Test that POST without CSRF token fails."""
-        response = client.post("/api/presets", json={"name": "Test"})
+        response = client.post("/api/v2/presets", json={"name": "Test"})
         # Without proper CSRF token, should get an error
         # The exact behavior depends on the middleware configuration
         assert response.status_code in [200, 400, 403, 422, 201]
@@ -65,13 +65,13 @@ class TestCsrfMiddleware:
     def test_post_with_valid_csrf_token_succeeds(self, client):
         """Test that POST with valid CSRF token succeeds."""
         # First get a CSRF token
-        token_response = client.get("/api/csrf-token")
+        token_response = client.get("/api/v2/auth/csrf-token")
         if token_response.status_code == 200:
             token_data = token_response.json()
             if "token" in token_data:
                 headers = {"X-CSRF-Token": token_data["token"]}
                 response = client.post(
-                    "/api/presets",
+                    "/api/v2/presets",
                     json={
                         "name": "Test Preset",
                         "config": {
@@ -109,7 +109,7 @@ class TestCsrfTokenEndpoint:
 
     def test_get_csrf_token(self, client):
         """Test getting a CSRF token from the endpoint."""
-        response = client.get("/api/csrf-token")
+        response = client.get("/api/v2/auth/csrf-token")
         assert response.status_code == 200
         data = response.json()
         assert "token" in data
@@ -117,8 +117,8 @@ class TestCsrfTokenEndpoint:
 
     def test_token_is_unique_per_request(self, client):
         """Test that each request gets a unique token."""
-        response1 = client.get("/api/csrf-token")
-        response2 = client.get("/api/csrf-token")
+        response1 = client.get("/api/v2/auth/csrf-token")
+        response2 = client.get("/api/v2/auth/csrf-token")
 
         if response1.status_code == 200 and response2.status_code == 200:
             # Tokens might be same if using same client ID
@@ -134,14 +134,14 @@ class TestClientIdExtraction:
     def test_client_id_from_header(self, client):
         """Test client ID extraction from X-Client-ID header."""
         response = client.get(
-            "/api/csrf-token",
+            "/api/v2/auth/csrf-token",
             headers={"X-Client-ID": "test-client-123"},
         )
         assert response.status_code == 200
 
     def test_client_id_from_query_param(self, client):
         """Test client ID extraction from query parameter."""
-        response = client.get("/api/csrf-token?client_id=test-client-456")
+        response = client.get("/api/v2/auth/csrf-token?client_id=test-client-456")
         assert response.status_code == 200
 
 
@@ -171,18 +171,18 @@ class TestIntegrationWithRealApp:
     def test_full_workflow_with_csrf(self, client):
         """Test a complete workflow with CSRF protection."""
         # Get CSRF token
-        token_response = client.get("/api/csrf-token")
+        token_response = client.get("/api/v2/auth/csrf-token")
         assert token_response.status_code == 200
         token = token_response.json().get("token", "")
 
         # List presets (GET - no CSRF needed)
-        list_response = client.get("/api/presets")
+        list_response = client.get("/api/v2/presets")
         assert list_response.status_code == 200
 
         # Create preset (POST - CSRF needed if enabled)
         headers = {"X-CSRF-Token": token} if token else {}
         create_response = client.post(
-            "/api/presets",
+            "/api/v2/presets",
             json={
                 "name": "Integration Test Preset",
                 "config": {

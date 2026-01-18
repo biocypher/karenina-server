@@ -18,11 +18,24 @@ except ImportError:
 def register_generation_routes(
     app: Any, TemplateGenerationRequest: Any, TemplateGenerationResponse: Any, TemplateGenerationStatusResponse: Any
 ) -> None:
-    """Register template generation-related routes."""
+    """Register template generation-related routes.
 
-    @app.post("/api/generate-answer-templates", response_model=TemplateGenerationResponse)  # type: ignore[misc]
-    async def generate_answer_templates_endpoint(request: TemplateGenerationRequest) -> TemplateGenerationResponse:
-        """Start answer template generation for a set of questions."""
+    V2 Routes (RESTful, noun-based naming):
+        POST /api/v2/templates/generation - Start template generation
+        GET /api/v2/templates/generation/{id}/progress - Get generation progress
+        DELETE /api/v2/templates/generation/{id} - Cancel generation job
+
+    WebSocket (unchanged):
+        WS /ws/generation-progress/{job_id} - WebSocket for real-time progress
+    """
+
+    # =========================================================================
+    # V2 Routes - RESTful, noun-based naming
+    # =========================================================================
+
+    @app.post("/api/v2/templates/generation", response_model=TemplateGenerationResponse)  # type: ignore[misc]
+    async def v2_start_generation_endpoint(request: TemplateGenerationRequest) -> TemplateGenerationResponse:
+        """V2: Start answer template generation for a set of questions."""
         # Import LLM_AVAILABLE from server to maintain compatibility with tests
         from .. import server
 
@@ -47,19 +60,23 @@ def register_generation_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start generation: {e!s}") from e
 
-    @app.get("/api/generation-progress/{job_id}")  # type: ignore[misc]
-    async def get_generation_progress(job_id: str) -> TemplateGenerationStatusResponse:
-        """Get the progress of a template generation job."""
+    @app.get("/api/v2/templates/generation/{generation_id}/progress")  # type: ignore[misc]
+    async def v2_get_generation_progress(generation_id: str) -> TemplateGenerationStatusResponse:
+        """V2: Get the progress of a template generation job."""
         try:
             from karenina_server.services.generation_service import generation_service
 
-            progress = generation_service.get_progress(job_id)
+            progress = generation_service.get_progress(generation_id)
             if not progress:
                 raise HTTPException(status_code=404, detail="Job not found")
 
             # Format response to match frontend expectations
+            # Set success=False if there's an error or status is 'failed'
+            error_message = progress.get("error_message")
+            is_success = error_message is None and progress["status"] != "failed"
             response = TemplateGenerationStatusResponse(
-                job_id=job_id,
+                success=is_success,
+                job_id=generation_id,
                 status=progress["status"],
                 percentage=progress.get("percentage", 0.0),
                 current_question=progress.get("current_question", ""),
@@ -67,12 +84,12 @@ def register_generation_routes(
                 total_count=progress.get("total_questions", 0),
                 duration_seconds=progress.get("duration_seconds"),
                 last_task_duration=progress.get("last_task_duration"),
-                error=progress.get("error_message"),
+                error=error_message,
                 in_progress_questions=progress.get("in_progress_questions", []),
             )
 
             # Add result if completed
-            job = generation_service.jobs.get(job_id)
+            job = generation_service.jobs.get(generation_id)
             if job and job.status == "completed" and job.result:
                 response.result = job.result
 
@@ -84,13 +101,13 @@ def register_generation_routes(
             print(f"Error getting generation progress: {e}")
             raise HTTPException(status_code=500, detail=str(e)) from e
 
-    @app.post("/api/cancel-generation/{job_id}")  # type: ignore[misc]
-    async def cancel_generation_endpoint(job_id: str) -> dict[str, str]:
-        """Cancel a template generation job."""
+    @app.delete("/api/v2/templates/generation/{generation_id}")  # type: ignore[misc]
+    async def v2_cancel_generation_endpoint(generation_id: str) -> dict[str, str]:
+        """V2: Cancel a template generation job."""
         try:
             from karenina_server.services.generation_service import generation_service
 
-            success = generation_service.cancel_job(job_id)
+            success = generation_service.cancel_job(generation_id)
             if not success:
                 raise HTTPException(status_code=404, detail="Job not found or cannot be cancelled")
 
@@ -100,6 +117,10 @@ def register_generation_routes(
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
+
+    # =========================================================================
+    # WebSocket endpoint for real-time progress updates (unchanged)
+    # =========================================================================
 
     @app.websocket("/ws/generation-progress/{job_id}")  # type: ignore[misc]
     async def websocket_generation_progress(websocket: WebSocket, job_id: str) -> None:
