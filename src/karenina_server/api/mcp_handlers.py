@@ -33,9 +33,13 @@ class MCPPresetDeleteRequest(BaseModel):
 def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationResponse: Any) -> None:
     """Register MCP validation-related routes."""
 
-    @app.get("/api/get-mcp-preset-configs")  # type: ignore[misc]
-    async def get_mcp_preset_configs() -> dict[str, Any]:
-        """Get MCP preset configurations from mcp_presets directory.
+    # =============================================================================
+    # V2 RESTful Routes
+    # =============================================================================
+
+    @app.get("/api/v2/mcp/presets")  # type: ignore[misc]
+    async def get_mcp_presets_v2() -> dict[str, Any]:
+        """V2: Get all MCP preset configurations.
 
         The directory location can be configured via MCP_PRESETS_DIR environment variable.
         Defaults to mcp_presets/ in the current working directory.
@@ -52,9 +56,9 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
             logger.error(f"Error getting MCP preset configurations: {e}")
             return {"presets": {}, "error": f"Failed to get MCP presets: {str(e)}"}
 
-    @app.post("/api/validate-mcp-server", response_model=MCPValidationResponse)  # type: ignore[misc]
-    async def validate_mcp_server_endpoint(request: MCPValidationRequest) -> MCPValidationResponse:
-        """Validate an MCP server and return available tools."""
+    @app.post("/api/v2/mcp/servers/validation", response_model=MCPValidationResponse)  # type: ignore[misc]
+    async def validate_mcp_server_v2(request: MCPValidationRequest) -> MCPValidationResponse:
+        """V2: Validate an MCP server and return available tools."""
         # Import LLM_AVAILABLE from server to maintain compatibility with tests
         from .. import server
 
@@ -82,11 +86,17 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
         except Exception as e:
             return MCPValidationResponse(success=False, tools=None, error=f"Failed to validate MCP server: {e!s}")
 
-    @app.post("/api/save-mcp-preset")  # type: ignore[misc]
-    async def save_mcp_preset(request: MCPPresetSaveRequest) -> dict[str, Any]:
-        """Save a new or update existing MCP preset."""
+    @app.put("/api/v2/mcp/presets/{name}")  # type: ignore[misc]
+    async def save_mcp_preset_v2(name: str, request: MCPPresetSaveRequest) -> dict[str, Any]:
+        """V2: Create or update an MCP preset.
+
+        Uses PUT since presets are identified by name and can be created or updated.
+        """
         try:
             from ..services.mcp_preset_service import MCPPresetService
+
+            # Ensure name in URL matches request body (or override body with URL name)
+            request.name = name
 
             service = MCPPresetService()
             preset = service.save_preset(
@@ -105,16 +115,19 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
             logger.error(f"Error saving MCP preset: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to save MCP preset: {str(e)}") from e
 
-    @app.post("/api/delete-mcp-preset")  # type: ignore[misc]
-    async def delete_mcp_preset(request: MCPPresetDeleteRequest) -> dict[str, Any]:
-        """Delete a user-saved MCP preset."""
+    @app.delete("/api/v2/mcp/presets/{name}")  # type: ignore[misc]
+    async def delete_mcp_preset_v2(name: str) -> dict[str, Any]:
+        """V2: Delete an MCP preset by name.
+
+        Uses DELETE method and name in URL path instead of request body.
+        """
         try:
             from ..services.mcp_preset_service import MCPPresetService
 
             service = MCPPresetService()
-            service.delete_preset(name=request.name)
+            service.delete_preset(name=name)
 
-            logger.info(f"Deleted MCP preset '{request.name}'")
+            logger.info(f"Deleted MCP preset '{name}'")
             return {"success": True}
 
         except ValueError as e:
@@ -123,53 +136,3 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
         except Exception as e:
             logger.error(f"Error deleting MCP preset: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to delete MCP preset: {str(e)}") from e
-
-    # =============================================================================
-    # V2 RESTful Routes
-    # =============================================================================
-    # The following routes provide RESTful noun-based naming conventions.
-    # They delegate to the v1 handlers above for consistent behavior.
-    #
-    # V1 → V2 Route Mapping:
-    #   GET  /api/get-mcp-preset-configs     → GET    /api/v2/mcp/presets
-    #   POST /api/validate-mcp-server        → POST   /api/v2/mcp/servers/validation
-    #   POST /api/save-mcp-preset            → PUT    /api/v2/mcp/presets/{name}
-    #   POST /api/delete-mcp-preset          → DELETE /api/v2/mcp/presets/{name}
-    # =============================================================================
-
-    @app.get("/api/v2/mcp/presets")  # type: ignore[misc]
-    async def get_mcp_presets_v2() -> dict[str, Any]:
-        """V2: Get all MCP preset configurations.
-
-        RESTful equivalent of GET /api/get-mcp-preset-configs
-        """
-        return await get_mcp_preset_configs()  # type: ignore[no-any-return]
-
-    @app.post("/api/v2/mcp/servers/validation", response_model=MCPValidationResponse)  # type: ignore[misc]
-    async def validate_mcp_server_v2(request: MCPValidationRequest) -> MCPValidationResponse:
-        """V2: Validate an MCP server and return available tools.
-
-        RESTful equivalent of POST /api/validate-mcp-server
-        """
-        return await validate_mcp_server_endpoint(request)
-
-    @app.put("/api/v2/mcp/presets/{name}")  # type: ignore[misc]
-    async def save_mcp_preset_v2(name: str, request: MCPPresetSaveRequest) -> dict[str, Any]:
-        """V2: Create or update an MCP preset.
-
-        RESTful equivalent of POST /api/save-mcp-preset
-        Uses PUT since presets are identified by name and can be created or updated.
-        """
-        # Ensure name in URL matches request body (or override body with URL name)
-        request.name = name
-        return await save_mcp_preset(request)  # type: ignore[no-any-return]
-
-    @app.delete("/api/v2/mcp/presets/{name}")  # type: ignore[misc]
-    async def delete_mcp_preset_v2(name: str) -> dict[str, Any]:
-        """V2: Delete an MCP preset by name.
-
-        RESTful equivalent of POST /api/delete-mcp-preset
-        Uses DELETE method and name in URL path instead of request body.
-        """
-        request = MCPPresetDeleteRequest(name=name)
-        return await delete_mcp_preset(request)  # type: ignore[no-any-return]

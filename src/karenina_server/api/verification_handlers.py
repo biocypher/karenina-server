@@ -177,14 +177,18 @@ def _compute_token_stats(results: list[VerificationResult], question_id: str) ->
 def register_verification_routes(app: FastAPI, verification_service: VerificationService) -> None:
     """Register verification-related routes.
 
-    Registers both v1 routes (verb-based, for backward compatibility) and
-    v2 routes (RESTful noun-based).
+    V2 Routes (RESTful noun-based):
+        - POST /api/v2/verifications - Create a new verification job
+        - GET /api/v2/verifications/{id}/progress - Get verification progress
+        - GET /api/v2/verifications/{id}/results - Get verification results
+        - DELETE /api/v2/verifications/{id} - Cancel a verification job
+        - GET /api/v2/verifications/{id}/export - Export verification results
+        - GET /api/v2/verifications/results - Get all historical results
+        - POST /api/v2/verifications/summary - Compute summary statistics
+        - POST /api/v2/verifications/compare - Compare multiple models
 
-    v1 routes (deprecated):
-        - POST /api/start-verification -> POST /api/v2/verifications
-        - GET /api/verification-progress/{job_id} -> GET /api/v2/verifications/{id}/progress
-        - GET /api/verification-results/{job_id} -> GET /api/v2/verifications/{id}/results
-        - POST /api/cancel-verification/{job_id} -> DELETE /api/v2/verifications/{id}
+    WebSocket (unchanged):
+        - WS /ws/verification-progress/{job_id} - Real-time progress updates
 
     Args:
         app: The FastAPI application instance to register routes on.
@@ -192,22 +196,14 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
     """
 
     # =========================================================================
-    # V1 ROUTES (DEPRECATED - kept for backward compatibility)
+    # V2 ROUTES (RESTful noun-based naming)
     # =========================================================================
 
-    @app.get("/api/finished-templates")
-    async def get_finished_templates_endpoint() -> dict[str, Any]:
-        """Get list of finished templates for verification."""
-        try:
-            # This is a placeholder - in a real implementation, you'd get this from your data store
-            # For now, return empty list since we don't have access to the checkpoint data here
-            return {"finished_templates": []}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting finished templates: {e!s}") from e
+    @app.post("/api/v2/verifications", response_model=StartVerificationResponse)
+    async def create_verification_v2(request: StartVerificationRequest) -> StartVerificationResponse:
+        """Create a new verification job (RESTful v2 endpoint).
 
-    @app.post("/api/start-verification")
-    async def start_verification_endpoint(request: StartVerificationRequest) -> StartVerificationResponse:
-        """Start verification job.
+        Creates a new verification resource and returns its job_id.
 
         Args:
             request: Typed request containing config, templates, and optional auto-save settings.
@@ -316,11 +312,18 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start verification: {e!s}") from e
 
-    @app.get("/api/verification-progress/{job_id}")
-    async def get_verification_progress(job_id: str) -> dict[str, Any]:
-        """Get verification progress."""
+    @app.get("/api/v2/verifications/{verification_id}/progress")
+    async def get_verification_progress_v2(verification_id: str) -> dict[str, Any]:
+        """Get verification progress (RESTful v2 endpoint).
+
+        Args:
+            verification_id: The verification job ID.
+
+        Returns:
+            Progress dict with status, percentage, processed count, etc.
+        """
         try:
-            progress = verification_service.get_progress(job_id)
+            progress = verification_service.get_progress(verification_id)
             if not progress:
                 raise HTTPException(status_code=404, detail="Job not found")
 
@@ -331,62 +334,18 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification progress: {e!s}") from e
 
-    @app.websocket("/ws/verification-progress/{job_id}")
-    async def websocket_verification_progress(websocket: WebSocket, job_id: str) -> None:
-        """WebSocket endpoint for real-time verification progress updates."""
-        import asyncio
+    @app.get("/api/v2/verifications/{verification_id}/results")
+    async def get_verification_results_v2(verification_id: str) -> dict[str, Any]:
+        """Get verification results (RESTful v2 endpoint).
 
-        # Validate job exists
-        job = verification_service.jobs.get(job_id)
-        if not job:
-            await websocket.close(code=1008, reason="Job not found")
-            return
+        Args:
+            verification_id: The verification job ID.
 
-        # Accept the connection
-        await websocket.accept()
-
-        # Set the event loop for the broadcaster if not already set
-        if verification_service.broadcaster._event_loop is None:
-            verification_service.broadcaster.set_event_loop(asyncio.get_running_loop())
-
-        # Subscribe to progress updates
-        await verification_service.broadcaster.subscribe(job_id, websocket)
-
+        Returns:
+            Results dict with verification results.
+        """
         try:
-            # Send current state immediately
-            progress = verification_service.get_progress(job_id)
-            if progress:
-                await websocket.send_json(
-                    {
-                        "type": "snapshot",
-                        "job_id": job_id,
-                        "status": progress["status"],
-                        "percentage": progress["percentage"],
-                        "processed": progress["processed_count"],
-                        "total": progress["total_questions"],
-                        "in_progress_questions": progress.get("in_progress_questions", []),
-                        "start_time": progress.get("start_time"),  # Unix timestamp for client-side live clock
-                        "duration_seconds": progress.get("duration_seconds"),
-                        "last_task_duration": progress.get("last_task_duration"),
-                        "current_question": progress.get("current_question", ""),
-                    }
-                )
-
-            # Keep connection alive and wait for client disconnect
-            while True:
-                try:
-                    await websocket.receive_text()
-                except WebSocketDisconnect:
-                    break
-        finally:
-            # Unsubscribe on disconnect
-            await verification_service.broadcaster.unsubscribe(job_id, websocket)
-
-    @app.get("/api/verification-results/{job_id}")
-    async def get_verification_results(job_id: str) -> dict[str, Any]:
-        """Get verification results."""
-        try:
-            results = verification_service.get_job_results(job_id)
+            results = verification_service.get_job_results(verification_id)
             if not results:
                 raise HTTPException(status_code=404, detail="Job not found or not completed")
 
@@ -397,21 +356,20 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error getting verification results: {e!s}") from e
 
-    @app.get("/api/all-verification-results")
-    async def get_all_verification_results() -> dict[str, Any]:
-        """Get all historical verification results across all jobs."""
-        try:
-            results = verification_service.get_all_historical_results()
-            return {"results": results}
+    @app.delete("/api/v2/verifications/{verification_id}")
+    async def cancel_verification_v2(verification_id: str) -> dict[str, Any]:
+        """Cancel a verification job (RESTful v2 endpoint).
 
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
+        Uses DELETE method to cancel/remove a running verification.
 
-    @app.post("/api/cancel-verification/{job_id}")
-    async def cancel_verification_endpoint(job_id: str) -> dict[str, Any]:
-        """Cancel verification job."""
+        Args:
+            verification_id: The verification job ID.
+
+        Returns:
+            Success message dict.
+        """
         try:
-            success = verification_service.cancel_job(job_id)
+            success = verification_service.cancel_job(verification_id)
             if not success:
                 raise HTTPException(status_code=404, detail="Job not found or cannot be cancelled")
 
@@ -422,9 +380,17 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to cancel job: {e!s}") from e
 
-    @app.get("/api/export-verification/{job_id}")
-    async def export_verification_endpoint(job_id: str, fmt: str = "json") -> FileResponse:
-        """Export verification results."""
+    @app.get("/api/v2/verifications/{verification_id}/export")
+    async def export_verification_v2(verification_id: str, fmt: str = "json") -> FileResponse:
+        """Export verification results (RESTful v2 endpoint).
+
+        Args:
+            verification_id: The verification job ID.
+            fmt: Export format ('json' or 'csv').
+
+        Returns:
+            FileResponse with exported results.
+        """
         try:
             from karenina.benchmark.verification.results_exporter import (
                 create_export_filename,
@@ -433,11 +399,11 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             )
 
             # Get job and results
-            job = verification_service.jobs.get(job_id)
+            job = verification_service.jobs.get(verification_id)
             if not job or job.status != "completed":
                 raise HTTPException(status_code=404, detail="Job not found or not completed")
 
-            results = verification_service.get_job_results(job_id)
+            results = verification_service.get_job_results(verification_id)
             if not results:
                 raise HTTPException(status_code=404, detail="No results available")
 
@@ -471,15 +437,29 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error exporting results: {e!s}") from e
 
-    @app.post("/api/verification/summary", response_model=ComputeSummaryResponse)
-    async def compute_summary_endpoint(request: ComputeSummaryRequest) -> ComputeSummaryResponse:
-        """Compute summary statistics for verification results.
-
-        Args:
-            request: Typed request with results dict and optional run_name filter.
+    @app.get("/api/v2/verifications/results")
+    async def get_all_verification_results_v2() -> dict[str, Any]:
+        """Get all historical verification results (RESTful v2 endpoint).
 
         Returns:
-            ComputeSummaryResponse with summary statistics from VerificationResultSet.get_summary().
+            Dict with all historical results.
+        """
+        try:
+            results = verification_service.get_all_historical_results()
+            return {"results": results}
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error getting all verification results: {e!s}") from e
+
+    @app.post("/api/v2/verifications/summary", response_model=ComputeSummaryResponse)
+    async def compute_summary_v2(request: ComputeSummaryRequest) -> ComputeSummaryResponse:
+        """Compute summary statistics (RESTful v2 endpoint).
+
+        Args:
+            request: Typed request with results and optional run_name filter.
+
+        Returns:
+            ComputeSummaryResponse with summary statistics.
         """
         try:
             from karenina.schemas.workflow import VerificationResult, VerificationResultSet
@@ -517,15 +497,15 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error computing summary: {e!s}") from e
 
-    @app.post("/api/verification/compare-models", response_model=CompareModelsResponse)
-    async def compare_models_endpoint(request: CompareModelsRequest) -> CompareModelsResponse:
-        """Compare multiple models with per-model summaries and heatmap data.
+    @app.post("/api/v2/verifications/compare", response_model=CompareModelsResponse)
+    async def compare_models_v2(request: CompareModelsRequest) -> CompareModelsResponse:
+        """Compare multiple models (RESTful v2 endpoint).
 
         Args:
             request: Typed request with results, models to compare, and parsing_model filter.
 
         Returns:
-            CompareModelsResponse with model_summaries, heatmap_data, and question_token_data.
+            CompareModelsResponse with model summaries, heatmap data, and token data.
         """
         try:
             from karenina.schemas.workflow import VerificationResult, VerificationResultSet
@@ -657,117 +637,56 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             raise HTTPException(status_code=500, detail=f"Error comparing models: {e!s}") from e
 
     # =========================================================================
-    # V2 ROUTES (RESTful noun-based naming)
+    # WebSocket endpoint for real-time progress updates (unchanged)
     # =========================================================================
 
-    @app.post("/api/v2/verifications", response_model=StartVerificationResponse)
-    async def create_verification_v2(request: StartVerificationRequest) -> StartVerificationResponse:
-        """Create a new verification job (RESTful v2 endpoint).
+    @app.websocket("/ws/verification-progress/{job_id}")
+    async def websocket_verification_progress(websocket: WebSocket, job_id: str) -> None:
+        """WebSocket endpoint for real-time verification progress updates."""
+        import asyncio
 
-        This is the RESTful alternative to POST /api/start-verification.
-        Creates a new verification resource and returns its job_id.
+        # Validate job exists
+        job = verification_service.jobs.get(job_id)
+        if not job:
+            await websocket.close(code=1008, reason="Job not found")
+            return
 
-        Args:
-            request: Typed request containing config, templates, and optional auto-save settings.
+        # Accept the connection
+        await websocket.accept()
 
-        Returns:
-            StartVerificationResponse with job_id, run_name, and status.
-        """
-        return await start_verification_endpoint(request)
+        # Set the event loop for the broadcaster if not already set
+        if verification_service.broadcaster._event_loop is None:
+            verification_service.broadcaster.set_event_loop(asyncio.get_running_loop())
 
-    @app.get("/api/v2/verifications/{verification_id}/progress")
-    async def get_verification_progress_v2(verification_id: str) -> dict[str, Any]:
-        """Get verification progress (RESTful v2 endpoint).
+        # Subscribe to progress updates
+        await verification_service.broadcaster.subscribe(job_id, websocket)
 
-        This is the RESTful alternative to GET /api/verification-progress/{job_id}.
+        try:
+            # Send current state immediately
+            progress = verification_service.get_progress(job_id)
+            if progress:
+                await websocket.send_json(
+                    {
+                        "type": "snapshot",
+                        "job_id": job_id,
+                        "status": progress["status"],
+                        "percentage": progress["percentage"],
+                        "processed": progress["processed_count"],
+                        "total": progress["total_questions"],
+                        "in_progress_questions": progress.get("in_progress_questions", []),
+                        "start_time": progress.get("start_time"),  # Unix timestamp for client-side live clock
+                        "duration_seconds": progress.get("duration_seconds"),
+                        "last_task_duration": progress.get("last_task_duration"),
+                        "current_question": progress.get("current_question", ""),
+                    }
+                )
 
-        Args:
-            verification_id: The verification job ID.
-
-        Returns:
-            Progress dict with status, percentage, processed count, etc.
-        """
-        return await get_verification_progress(verification_id)
-
-    @app.get("/api/v2/verifications/{verification_id}/results")
-    async def get_verification_results_v2(verification_id: str) -> dict[str, Any]:
-        """Get verification results (RESTful v2 endpoint).
-
-        This is the RESTful alternative to GET /api/verification-results/{job_id}.
-
-        Args:
-            verification_id: The verification job ID.
-
-        Returns:
-            Results dict with verification results.
-        """
-        return await get_verification_results(verification_id)
-
-    @app.delete("/api/v2/verifications/{verification_id}")
-    async def cancel_verification_v2(verification_id: str) -> dict[str, Any]:
-        """Cancel a verification job (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/cancel-verification/{job_id}.
-        Uses DELETE method to cancel/remove a running verification.
-
-        Args:
-            verification_id: The verification job ID.
-
-        Returns:
-            Success message dict.
-        """
-        return await cancel_verification_endpoint(verification_id)
-
-    @app.get("/api/v2/verifications/{verification_id}/export")
-    async def export_verification_v2(verification_id: str, fmt: str = "json") -> FileResponse:
-        """Export verification results (RESTful v2 endpoint).
-
-        This is the RESTful alternative to GET /api/export-verification/{job_id}.
-
-        Args:
-            verification_id: The verification job ID.
-            fmt: Export format ('json' or 'csv').
-
-        Returns:
-            FileResponse with exported results.
-        """
-        return await export_verification_endpoint(verification_id, fmt)
-
-    @app.get("/api/v2/verifications/results")
-    async def get_all_verification_results_v2() -> dict[str, Any]:
-        """Get all historical verification results (RESTful v2 endpoint).
-
-        This is the RESTful alternative to GET /api/all-verification-results.
-
-        Returns:
-            Dict with all historical results.
-        """
-        return await get_all_verification_results()
-
-    @app.post("/api/v2/verifications/summary", response_model=ComputeSummaryResponse)
-    async def compute_summary_v2(request: ComputeSummaryRequest) -> ComputeSummaryResponse:
-        """Compute summary statistics (RESTful v2 endpoint).
-
-        This is equivalent to POST /api/verification/summary (already noun-based).
-
-        Args:
-            request: Typed request with results and optional run_name filter.
-
-        Returns:
-            ComputeSummaryResponse with summary statistics.
-        """
-        return await compute_summary_endpoint(request)
-
-    @app.post("/api/v2/verifications/compare", response_model=CompareModelsResponse)
-    async def compare_models_v2(request: CompareModelsRequest) -> CompareModelsResponse:
-        """Compare multiple models (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/verification/compare-models.
-
-        Args:
-            request: Typed request with results, models to compare, and parsing_model filter.
-
-        Returns:
-            CompareModelsResponse with model summaries, heatmap data, and token data.
-        """
-        return await compare_models_endpoint(request)
+            # Keep connection alive and wait for client disconnect
+            while True:
+                try:
+                    await websocket.receive_text()
+                except WebSocketDisconnect:
+                    break
+        finally:
+            # Unsubscribe on disconnect
+            await verification_service.broadcaster.unsubscribe(job_id, websocket)

@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import File, Form, HTTPException, UploadFile
+from fastapi import File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from ..constants import TEMP_EXPORT_DIR, TEMP_UPLOAD_DIR
@@ -78,9 +78,13 @@ def register_file_routes(
 ) -> None:
     """Register file-related routes."""
 
-    @app.post("/api/upload-file")  # type: ignore[misc]
-    async def upload_file_endpoint(file: UploadFile = File(...)) -> dict[str, Any]:
-        """Upload a file for question extraction."""
+    # ============================================================================
+    # V2 RESTful Routes - File Endpoints
+    # ============================================================================
+
+    @app.post("/api/v2/files")  # type: ignore[misc]
+    async def upload_file_v2(file: UploadFile = File(...)) -> dict[str, Any]:
+        """V2: Upload a file for question extraction."""
         if not EXTRACTOR_AVAILABLE:
             raise HTTPException(status_code=500, detail="Question extractor not available")
 
@@ -113,11 +117,12 @@ def register_file_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error uploading file: {e!s}") from e
 
-    @app.post("/api/preview-file", response_model=FilePreviewResponse)  # type: ignore[misc]
-    async def preview_file_endpoint(
-        file_id: str = Form(...), sheet_name: str | None = Form(None)
-    ) -> FilePreviewResponse:
-        """Get a preview of the uploaded file."""
+    @app.get("/api/v2/files/{file_id}/preview", response_model=FilePreviewResponse)  # type: ignore[misc]
+    async def preview_file_v2(file_id: str, sheet_name: str | None = None) -> FilePreviewResponse:
+        """V2: Get a preview of an uploaded file.
+
+        Uses GET since this is a read operation, with query params instead of form data.
+        """
         if not EXTRACTOR_AVAILABLE:
             raise HTTPException(status_code=500, detail="Question extractor not available")
 
@@ -132,17 +137,20 @@ def register_file_routes(
         except Exception as e:
             return FilePreviewResponse(success=False, error=f"Error previewing file: {e!s}")
 
-    @app.post("/api/extract-questions", response_model=ExtractQuestionsResponse)  # type: ignore[misc]
-    async def extract_questions_endpoint(request: ExtractQuestionsRequest) -> ExtractQuestionsResponse:
-        """Extract questions from the uploaded file."""
+    @app.post("/api/v2/files/{file_id}/questions", response_model=ExtractQuestionsResponse)  # type: ignore[misc]
+    async def extract_questions_v2(file_id: str, request: ExtractQuestionsRequest) -> ExtractQuestionsResponse:
+        """V2: Extract questions from an uploaded file.
+
+        File ID is in URL path, extraction config in request body.
+        """
         if not EXTRACTOR_AVAILABLE:
             raise HTTPException(status_code=500, detail="Question extractor not available")
 
-        if request.file_id not in uploaded_files:
+        if file_id not in uploaded_files:
             raise HTTPException(status_code=404, detail="File not found")
 
         try:
-            file_info = uploaded_files[request.file_id]
+            file_info = uploaded_files[file_id]
 
             # Handle backward compatibility: convert old format to new format
             keywords_columns = None
@@ -178,9 +186,12 @@ def register_file_routes(
         except Exception as e:
             return ExtractQuestionsResponse(success=False, error=f"Error extracting questions: {e!s}")
 
-    @app.post("/api/export-questions-python")  # type: ignore[misc]
-    async def export_questions_python_endpoint(request: dict[str, Any]) -> FileResponse:
-        """Export questions as a Python file."""
+    @app.post("/api/v2/questions/export")  # type: ignore[misc]
+    async def export_questions_python_v2(request: dict[str, Any]) -> FileResponse:
+        """V2: Export questions as a Python file.
+
+        Questions are a top-level resource, export is an action on them.
+        """
         try:
             questions_data = request.get("questions", {})
 
@@ -209,9 +220,9 @@ def register_file_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error exporting Python file: {e!s}") from e
 
-    @app.delete("/api/uploaded-files/{file_id}")  # type: ignore[misc]
-    async def delete_uploaded_file_endpoint(file_id: str) -> dict[str, str]:
-        """Delete an uploaded file."""
+    @app.delete("/api/v2/files/{file_id}")  # type: ignore[misc]
+    async def delete_file_v2(file_id: str) -> dict[str, str]:
+        """V2: Delete an uploaded file."""
         if file_id not in uploaded_files:
             raise HTTPException(status_code=404, detail="File not found")
 
@@ -234,9 +245,9 @@ def register_file_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting file: {e!s}") from e
 
-    @app.post("/api/upload-manual-traces")  # type: ignore[misc]
-    async def upload_manual_traces_endpoint(file: UploadFile = File(...)) -> dict[str, Any]:
-        """Upload manual traces JSON file."""
+    @app.post("/api/v2/traces")  # type: ignore[misc]
+    async def upload_traces_v2(file: UploadFile = File(...)) -> dict[str, Any]:
+        """V2: Upload manual traces JSON file."""
         if not MANUAL_TRACES_AVAILABLE:
             raise HTTPException(status_code=500, detail="Manual traces functionality not available")
 
@@ -268,107 +279,12 @@ def register_file_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error uploading manual traces: {e}") from e
 
-    @app.get("/api/manual-traces/status")  # type: ignore[misc]
-    async def get_manual_traces_status() -> dict[str, Any]:
-        """Get the status of loaded manual traces."""
+    @app.get("/api/v2/traces/status")  # type: ignore[misc]
+    async def get_traces_status_v2() -> dict[str, Any]:
+        """V2: Get the status of loaded manual traces."""
         if not MANUAL_TRACES_AVAILABLE:
             raise HTTPException(status_code=500, detail="Manual traces functionality not available")
 
         trace_count = get_manual_trace_count()
 
         return {"loaded": trace_count > 0, "trace_count": trace_count}
-
-    # ============================================================================
-    # V2 RESTful Routes - File Endpoints
-    # ============================================================================
-    # These routes provide RESTful noun-based alternatives to the v1 verb-based routes.
-    # V1 routes remain for backward compatibility.
-    #
-    # V1 Route                          -> V2 RESTful Route
-    # -----------------------------------------------------------------
-    # POST /api/upload-file             -> POST /api/v2/files
-    # POST /api/preview-file            -> GET /api/v2/files/{id}/preview
-    # POST /api/extract-questions       -> POST /api/v2/files/{id}/questions
-    # POST /api/export-questions-python -> POST /api/v2/questions/export
-    # DELETE /api/uploaded-files/{id}   -> DELETE /api/v2/files/{id}
-    # POST /api/upload-manual-traces    -> POST /api/v2/traces
-    # GET /api/manual-traces/status     -> GET /api/v2/traces/status
-    # ============================================================================
-
-    @app.post("/api/v2/files")  # type: ignore[misc]
-    async def upload_file_v2(file: UploadFile = File(...)) -> dict[str, Any]:
-        """V2: Upload a file for question extraction.
-
-        RESTful alternative to POST /api/upload-file.
-        """
-        result: dict[str, Any] = await upload_file_endpoint(file=file)
-        return result
-
-    @app.get("/api/v2/files/{file_id}/preview", response_model=FilePreviewResponse)  # type: ignore[misc]
-    async def preview_file_v2(file_id: str, sheet_name: str | None = None) -> FilePreviewResponse:
-        """V2: Get a preview of an uploaded file.
-
-        RESTful alternative to POST /api/preview-file.
-        Uses GET since this is a read operation, with query params instead of form data.
-        """
-        if not EXTRACTOR_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Question extractor not available")
-
-        if file_id not in uploaded_files:
-            raise HTTPException(status_code=404, detail="File not found")
-
-        try:
-            file_info = uploaded_files[file_id]
-            preview_data = get_file_preview(file_info["file_path"], sheet_name)
-            return FilePreviewResponse(**preview_data)
-
-        except Exception as e:
-            return FilePreviewResponse(success=False, error=f"Error previewing file: {e!s}")
-
-    @app.post("/api/v2/files/{file_id}/questions", response_model=ExtractQuestionsResponse)  # type: ignore[misc]
-    async def extract_questions_v2(file_id: str, request: ExtractQuestionsRequest) -> ExtractQuestionsResponse:
-        """V2: Extract questions from an uploaded file.
-
-        RESTful alternative to POST /api/extract-questions.
-        File ID is in URL path, extraction config in request body.
-        """
-        # Override the file_id from the request with the one from the URL path
-        request.file_id = file_id
-        return await extract_questions_endpoint(request=request)
-
-    @app.post("/api/v2/questions/export")  # type: ignore[misc]
-    async def export_questions_python_v2(request: dict[str, Any]) -> FileResponse:
-        """V2: Export questions as a Python file.
-
-        RESTful alternative to POST /api/export-questions-python.
-        Questions are a top-level resource, export is an action on them.
-        """
-        result: FileResponse = await export_questions_python_endpoint(request=request)
-        return result
-
-    @app.delete("/api/v2/files/{file_id}")  # type: ignore[misc]
-    async def delete_file_v2(file_id: str) -> dict[str, str]:
-        """V2: Delete an uploaded file.
-
-        RESTful alternative to DELETE /api/uploaded-files/{file_id}.
-        """
-        result: dict[str, str] = await delete_uploaded_file_endpoint(file_id=file_id)
-        return result
-
-    @app.post("/api/v2/traces")  # type: ignore[misc]
-    async def upload_traces_v2(file: UploadFile = File(...)) -> dict[str, Any]:
-        """V2: Upload manual traces JSON file.
-
-        RESTful alternative to POST /api/upload-manual-traces.
-        """
-        result: dict[str, Any] = await upload_manual_traces_endpoint(file=file)
-        return result
-
-    @app.get("/api/v2/traces/status")  # type: ignore[misc]
-    async def get_traces_status_v2() -> dict[str, Any]:
-        """V2: Get the status of loaded manual traces.
-
-        RESTful alternative to GET /api/manual-traces/status.
-        """
-        result: dict[str, Any] = await get_manual_traces_status()
-        return result

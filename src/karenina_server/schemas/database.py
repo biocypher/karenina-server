@@ -110,16 +110,7 @@ class DuplicateQuestionInfo(BaseModel):
 
 
 class BenchmarkSaveRequest(BaseModel):
-    """Request for saving a benchmark."""
-
-    storage_url: str
-    benchmark_name: str
-    checkpoint_data: dict[str, Any]
-    detect_duplicates: bool = False  # If True, only detect duplicates without saving
-
-
-class BenchmarkSaveRequestV2(BaseModel):
-    """Request for saving a benchmark (v2 - benchmark_name from URL path)."""
+    """Request for saving a benchmark (benchmark_name from URL path)."""
 
     storage_url: str
     checkpoint_data: dict[str, Any]

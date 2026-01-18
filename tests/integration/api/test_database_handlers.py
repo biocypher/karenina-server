@@ -25,13 +25,13 @@ class TestDatabaseConnectEndpoint:
 
     def test_connect_without_storage_url(self, client):
         """Test connection without storage URL returns validation error."""
-        response = client.post("/api/database/connect", json={})
+        response = client.post("/api/v2/databases/connections", json={})
         assert response.status_code == 422
 
     def test_connect_with_valid_url(self, client, temp_sqlite_db):
         """Test connection with valid SQLite URL."""
         response = client.post(
-            "/api/database/connect",
+            "/api/v2/databases/connections",
             json={"storage_url": temp_sqlite_db, "create_if_missing": True},
         )
         assert response.status_code == 200
@@ -41,7 +41,7 @@ class TestDatabaseConnectEndpoint:
     def test_connect_with_invalid_url(self, client):
         """Test connection with invalid URL returns error."""
         response = client.post(
-            "/api/database/connect",
+            "/api/v2/databases/connections",
             json={"storage_url": "invalid://url"},
         )
         assert response.status_code == 500
@@ -54,18 +54,18 @@ class TestListBenchmarksEndpoint:
 
     def test_list_benchmarks_no_storage_url(self, client):
         """Test listing benchmarks without storage URL returns validation error."""
-        response = client.get("/api/database/benchmarks")
+        response = client.get("/api/v2/benchmarks")
         assert response.status_code == 422
 
     def test_list_benchmarks_with_storage_url(self, client, temp_sqlite_db):
         """Test listing benchmarks with valid storage URL."""
         # First initialize the database
         client.post(
-            "/api/database/connect",
+            "/api/v2/databases/connections",
             json={"storage_url": temp_sqlite_db, "create_if_missing": True},
         )
 
-        response = client.get(f"/api/database/benchmarks?storage_url={temp_sqlite_db}")
+        response = client.get(f"/api/v2/benchmarks?storage_url={temp_sqlite_db}")
         assert response.status_code == 200
         data = response.json()
         assert "benchmarks" in data
@@ -79,21 +79,18 @@ class TestVerificationRunsEndpoint:
 
     def test_list_verification_runs_no_storage_url(self, client):
         """Test listing runs without storage URL returns validation error."""
-        response = client.post("/api/database/verification-runs", json={})
+        response = client.get("/api/v2/verification-runs")
         assert response.status_code == 422
 
     def test_list_verification_runs_with_storage_url(self, client, temp_sqlite_db):
         """Test listing verification runs with valid storage URL."""
         # First initialize the database
         client.post(
-            "/api/database/connect",
+            "/api/v2/databases/connections",
             json={"storage_url": temp_sqlite_db, "create_if_missing": True},
         )
 
-        response = client.post(
-            "/api/database/verification-runs",
-            json={"storage_url": temp_sqlite_db},
-        )
+        response = client.get(f"/api/v2/verification-runs?storage_url={temp_sqlite_db}")
         assert response.status_code == 200
         data = response.json()
         assert "runs" in data
@@ -116,7 +113,7 @@ class TestListDatabasesEndpoint:
             # Use DB_PATH which is what the handler reads
             monkeypatch.setenv("DB_PATH", temp_dir)
 
-            response = client.get("/api/database/list-databases")
+            response = client.get("/api/v2/databases")
             assert response.status_code == 200
             data = response.json()
             assert "databases" in data

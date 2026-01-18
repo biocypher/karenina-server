@@ -207,9 +207,14 @@ def get_client_id(request: Request) -> str:
 router = APIRouter()
 
 
-@router.get("/csrf-token", response_model=CsrfTokenResponse)
-async def get_csrf_token(request: Request, response: Response) -> CsrfTokenResponse:
-    """Generate and return a CSRF token for the client.
+# =============================================================================
+# V2 API Endpoints
+# =============================================================================
+
+
+@router.get("/v2/auth/csrf-token", response_model=CsrfTokenResponse)
+async def get_csrf_token_v2(request: Request, response: Response) -> CsrfTokenResponse:
+    """Generate and return a CSRF token (v2 endpoint).
 
     The token should be included in the X-CSRF-Token header for all
     state-changing requests (POST, PUT, DELETE, PATCH).
@@ -235,18 +240,3 @@ async def get_csrf_token(request: Request, response: Response) -> CsrfTokenRespo
     token = csrf_store.generate_token(client_id)
 
     return CsrfTokenResponse(token=token)
-
-
-# =============================================================================
-# V2 API Endpoints
-# =============================================================================
-
-
-@router.get("/v2/auth/csrf-token", response_model=CsrfTokenResponse)
-async def get_csrf_token_v2(request: Request, response: Response) -> CsrfTokenResponse:
-    """Generate and return a CSRF token (v2 endpoint).
-
-    The token should be included in the X-CSRF-Token header for all
-    state-changing requests (POST, PUT, DELETE, PATCH).
-    """
-    return await get_csrf_token(request, response)

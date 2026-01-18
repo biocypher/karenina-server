@@ -54,26 +54,26 @@ class TestConfigEndpoints:
     """Integration tests for configuration API endpoints."""
 
     def test_get_env_vars_masked(self, client):
-        """Test GET /api/config/env-vars returns masked env vars."""
-        response = client.get("/api/config/env-vars")
+        """Test GET /api/v2/config/env-vars returns masked env vars."""
+        response = client.get("/api/v2/config/env-vars")
         assert response.status_code == 200
         env_vars = response.json()
         # Env vars should be returned as a dict
         assert isinstance(env_vars, dict)
 
     def test_update_env_var(self, client):
-        """Test PUT /api/config/env-vars updates env vars."""
+        """Test PUT /api/v2/config/env-vars updates env vars."""
         response = client.put(
-            "/api/config/env-vars",
+            "/api/v2/config/env-vars",
             json={"key": "NEW_VAR", "value": "new_value"},
         )
         assert response.status_code == 200
 
     def test_delete_env_var(self, client):
-        """Test DELETE /api/config/env-vars/{key} removes env var."""
+        """Test DELETE /api/v2/config/env-vars/{key} removes env var."""
         # First add a variable
-        client.put("/api/config/env-vars", json={"key": "TO_DELETE", "value": "value"})
+        client.put("/api/v2/config/env-vars", json={"key": "TO_DELETE", "value": "value"})
 
         # Then delete it
-        response = client.delete("/api/config/env-vars/TO_DELETE")
+        response = client.delete("/api/v2/config/env-vars/TO_DELETE")
         assert response.status_code == 200

@@ -140,31 +140,46 @@ def register_database_routes(
     DatabaseConnectRequest: Any,
     DatabaseConnectResponse: Any,
     BenchmarkListResponse: Any,
-    BenchmarkLoadRequest: Any,
+    _BenchmarkLoadRequest: Any,  # Unused: no v2 load endpoint yet
     BenchmarkLoadResponse: Any,
     BenchmarkCreateRequest: Any,
     BenchmarkCreateResponse: Any,
     BenchmarkSaveRequest: Any,
-    BenchmarkSaveRequestV2: Any,
     BenchmarkSaveResponse: Any,
     DuplicateResolutionRequest: Any,
     DuplicateResolutionResponse: Any,
     ListDatabasesResponse: Any,
     DeleteDatabaseRequest: Any,
     _DeleteDatabaseResponse: Any,  # Unused: endpoint returns 204 No Content
-    DeleteBenchmarkRequest: Any,
+    _DeleteBenchmarkRequest: Any,  # Unused: no v2 delete benchmark endpoint yet
     DeleteBenchmarkResponse: Any,
     ImportResultsRequest: Any,
     ImportResultsResponse: Any,
-    ListVerificationRunsRequest: Any,
+    _ListVerificationRunsRequest: Any,  # Unused: no v2 list verification runs endpoint yet
     ListVerificationRunsResponse: Any,
-    LoadVerificationResultsRequest: Any,
+    _LoadVerificationResultsRequest: Any,  # Unused: no v2 load verification results endpoint yet
     LoadVerificationResultsResponse: Any,
 ) -> None:
-    """Register database management routes."""
+    """Register database management routes.
 
-    @app.post("/api/database/connect", response_model=DatabaseConnectResponse)  # type: ignore[misc]
-    async def connect_database_endpoint(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
+    V2 Routes (RESTful, noun-based naming):
+        POST /api/v2/databases/connections - Connect to database
+        GET /api/v2/benchmarks - List benchmarks
+        GET /api/v2/benchmarks/{name} - Get benchmark
+        POST /api/v2/benchmarks - Create benchmark
+        PUT /api/v2/benchmarks/{name} - Update benchmark
+        POST /api/v2/benchmarks/{name}/duplicates - Resolve duplicates
+        POST /api/v2/databases - Initialize database
+        GET /api/v2/databases - List databases
+        DELETE /api/v2/databases - Delete database
+        DELETE /api/v2/benchmarks/{name} - Delete benchmark
+        POST /api/v2/benchmarks/{name}/results - Import results
+        GET /api/v2/verification-runs - List verification runs
+        GET /api/v2/verification-results - Get verification results
+    """
+
+    @app.post("/api/v2/databases/connections", response_model=DatabaseConnectResponse)  # type: ignore[misc]
+    async def connect_database_v2(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
         """Connect to or create a database."""
         from pydantic import ValidationError as PydanticValidationError
 
@@ -204,8 +219,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error connecting to database: {e!s}") from e
 
-    @app.get("/api/database/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
-    async def list_benchmarks_endpoint(storage_url: str) -> BenchmarkListResponse:
+    @app.get("/api/v2/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
+    async def list_benchmarks_v2(storage_url: str) -> BenchmarkListResponse:
         """List all benchmarks in the database."""
         from ..exceptions import ServiceUnavailableError
 
@@ -234,8 +249,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing benchmarks: {e!s}") from e
 
-    @app.post("/api/database/load-benchmark", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
-    async def load_benchmark_endpoint(request: BenchmarkLoadRequest) -> BenchmarkLoadResponse:
+    @app.get("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
+    async def get_benchmark_v2(benchmark_name: str, storage_url: str) -> BenchmarkLoadResponse:
         """Load a benchmark from the database."""
         from ..exceptions import NotFoundError, ServiceUnavailableError
 
@@ -247,10 +262,10 @@ def register_database_routes(
 
             from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, get_session
 
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             # Load benchmark
-            benchmark, loaded_config = load_benchmark(request.benchmark_name, db_config, load_config=True)
+            benchmark, loaded_config = load_benchmark(benchmark_name, db_config, load_config=True)
 
             # Query database for updated_at timestamps
             updated_at_map = {}
@@ -259,7 +274,7 @@ def register_database_routes(
                 from sqlalchemy import select
 
                 benchmark_model = session.execute(
-                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                    select(BenchmarkModel).where(BenchmarkModel.name == benchmark_name)
                 ).scalar_one_or_none()
 
                 if benchmark_model:
@@ -333,10 +348,10 @@ def register_database_routes(
 
             return BenchmarkLoadResponse(
                 success=True,
-                benchmark_name=request.benchmark_name,
+                benchmark_name=benchmark_name,
                 checkpoint_data=checkpoint_data,
-                storage_url=request.storage_url,
-                message=f"Successfully loaded benchmark '{request.benchmark_name}' from database",
+                storage_url=storage_url,
+                message=f"Successfully loaded benchmark '{benchmark_name}' from database",
             )
 
         except ValueError as e:
@@ -344,8 +359,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading benchmark: {e!s}") from e
 
-    @app.post("/api/database/create-benchmark", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
-    async def create_benchmark_endpoint(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
+    @app.post("/api/v2/benchmarks", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
+    async def create_benchmark_v2(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
         """Create a new empty benchmark in the database."""
         from ..exceptions import ConflictError, ServiceUnavailableError
 
@@ -406,8 +421,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error creating benchmark: {e!s}") from e
 
-    @app.post("/api/database/save-benchmark", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
-    async def save_benchmark_endpoint(request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
+    @app.put("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
+    async def update_benchmark_v2(benchmark_name: str, request: BenchmarkSaveRequest) -> BenchmarkSaveResponse:
         """Save current checkpoint data to the database."""
         from ..exceptions import ServiceUnavailableError
 
@@ -426,7 +441,7 @@ def register_database_routes(
 
             # Create benchmark instance
             benchmark = Benchmark.create(
-                name=request.benchmark_name,
+                name=benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
                 creator=_normalize_creator_name(metadata.get("creator")),
@@ -486,7 +501,7 @@ def register_database_routes(
             # Normal save response
             return BenchmarkSaveResponse(
                 success=True,
-                message=f"Benchmark '{request.benchmark_name}' saved successfully",
+                message=f"Benchmark '{benchmark_name}' saved successfully",
                 last_modified=last_modified,
                 duplicates=None,
             )
@@ -494,8 +509,10 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error saving benchmark: {e!s}") from e
 
-    @app.post("/api/database/resolve-duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
-    async def resolve_duplicates_endpoint(request: DuplicateResolutionRequest) -> DuplicateResolutionResponse:
+    @app.post("/api/v2/benchmarks/{benchmark_name}/duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
+    async def resolve_benchmark_duplicates_v2(
+        benchmark_name: str, request: DuplicateResolutionRequest
+    ) -> DuplicateResolutionResponse:
         """Resolve duplicate questions by applying user's choices (keep_old vs keep_new)."""
         from ..exceptions import ServiceUnavailableError
 
@@ -512,9 +529,9 @@ def register_database_routes(
             # Get dataset metadata from checkpoint
             metadata = request.checkpoint_data.get("dataset_metadata", {})
 
-            # Create benchmark instance
+            # Create benchmark instance (use benchmark_name from URL path)
             benchmark = Benchmark.create(
-                name=request.benchmark_name,
+                name=benchmark_name,
                 description=metadata.get("description", ""),
                 version=metadata.get("version", "1.0.0"),
                 creator=_normalize_creator_name(metadata.get("creator")),
@@ -586,8 +603,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error resolving duplicates: {e!s}") from e
 
-    @app.post("/api/database/init")  # type: ignore[misc]
-    async def init_database_endpoint(request: dict[str, Any]) -> dict[str, Any]:
+    @app.post("/api/v2/databases")  # type: ignore[misc]
+    async def init_database_v2(request: dict[str, Any]) -> dict[str, Any]:
         """Initialize a new database."""
         from ..exceptions import ServiceUnavailableError, ValidationError
 
@@ -609,8 +626,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error initializing database: {e!s}") from e
 
-    @app.get("/api/database/list-databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
-    async def list_databases_endpoint() -> ListDatabasesResponse:
+    @app.get("/api/v2/databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
+    async def list_databases_v2() -> ListDatabasesResponse:
         """List all .db files in the DB_PATH directory."""
         from ..exceptions import NotFoundError
 
@@ -650,8 +667,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing databases: {e!s}") from e
 
-    @app.delete("/api/database/delete", status_code=204)  # type: ignore[misc]
-    async def delete_database_endpoint(request: DeleteDatabaseRequest) -> None:
+    @app.delete("/api/v2/databases", status_code=204)  # type: ignore[misc]
+    async def delete_database_v2(request: DeleteDatabaseRequest) -> None:
         """Delete a SQLite database file.
 
         Only works for SQLite databases. The database file must be in the DB_PATH directory
@@ -709,8 +726,8 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error deleting database: {e!s}") from e
 
-    @app.delete("/api/database/delete-benchmark", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
-    async def delete_benchmark_endpoint(request: DeleteBenchmarkRequest) -> DeleteBenchmarkResponse:
+    @app.delete("/api/v2/benchmarks/{benchmark_name}", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
+    async def delete_benchmark_v2(benchmark_name: str, storage_url: str) -> DeleteBenchmarkResponse:
         """Delete a benchmark and all its associated data.
 
         This will delete:
@@ -727,16 +744,16 @@ def register_database_routes(
             from karenina.storage import BenchmarkModel, BenchmarkQuestionModel, VerificationRunModel
             from sqlalchemy import func, select
 
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             with get_session(db_config) as session:
                 # Find the benchmark
                 benchmark = session.execute(
-                    select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                    select(BenchmarkModel).where(BenchmarkModel.name == benchmark_name)
                 ).scalar_one_or_none()
 
                 if not benchmark:
-                    raise NotFoundError(f"Benchmark '{request.benchmark_name}' not found")
+                    raise NotFoundError(f"Benchmark '{benchmark_name}' not found")
 
                 # Count associated data for the response
                 question_count = (
@@ -763,7 +780,7 @@ def register_database_routes(
 
                 return DeleteBenchmarkResponse(
                     success=True,
-                    message=f"Successfully deleted benchmark '{request.benchmark_name}'",
+                    message=f"Successfully deleted benchmark '{benchmark_name}'",
                     deleted_questions=question_count,
                     deleted_runs=run_count,
                 )
@@ -777,8 +794,8 @@ def register_database_routes(
     # Verification Results Import/Export Endpoints
     # =========================================================================
 
-    @app.post("/api/database/import-results", response_model=ImportResultsResponse)  # type: ignore[misc]
-    async def import_results_endpoint(request: ImportResultsRequest) -> ImportResultsResponse:
+    @app.post("/api/v2/benchmarks/{benchmark_name}/results", response_model=ImportResultsResponse)  # type: ignore[misc]
+    async def import_benchmark_results_v2(benchmark_name: str, request: ImportResultsRequest) -> ImportResultsResponse:
         """Import verification results from JSON export format."""
         from ..exceptions import ServiceUnavailableError, ValidationError
 
@@ -788,11 +805,11 @@ def register_database_routes(
         try:
             db_config = DBConfig(storage_url=request.storage_url)
 
-            # Import the results
+            # Import the results (use benchmark_name from URL path)
             run_id, imported_count, skipped_count = import_verification_results(
                 json_data=request.json_data,
                 db_config=db_config,
-                benchmark_name=request.benchmark_name,
+                benchmark_name=benchmark_name,
                 run_name=request.run_name,
             )
 
@@ -810,8 +827,10 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error importing results: {e!s}") from e
 
-    @app.post("/api/database/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
-    async def list_verification_runs_endpoint(request: ListVerificationRunsRequest) -> ListVerificationRunsResponse:
+    @app.get("/api/v2/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
+    async def list_verification_runs_v2(
+        storage_url: str, benchmark_name: str | None = None
+    ) -> ListVerificationRunsResponse:
         """List all verification runs in the database."""
         from ..exceptions import ServiceUnavailableError
 
@@ -821,7 +840,7 @@ def register_database_routes(
         try:
             from sqlalchemy import select
 
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             runs = []
             with get_session(db_config) as session:
@@ -829,11 +848,11 @@ def register_database_routes(
                 query = select(VerificationRunModel)
 
                 # Filter by benchmark if specified
-                if request.benchmark_name:
+                if benchmark_name:
                     from karenina.storage import BenchmarkModel
 
                     benchmark = session.execute(
-                        select(BenchmarkModel).where(BenchmarkModel.name == request.benchmark_name)
+                        select(BenchmarkModel).where(BenchmarkModel.name == benchmark_name)
                     ).scalar_one_or_none()
                     if benchmark:
                         query = query.where(VerificationRunModel.benchmark_id == benchmark.id)
@@ -854,14 +873,14 @@ def register_database_routes(
                     from karenina.storage import BenchmarkModel
 
                     benchmark = session.get(BenchmarkModel, run.benchmark_id)
-                    benchmark_name = benchmark.name if benchmark else "Unknown"
+                    run_benchmark_name = benchmark.name if benchmark else "Unknown"
 
                     runs.append(
                         {
                             "id": run.id,
                             "run_name": run.run_name,
                             "benchmark_id": run.benchmark_id,
-                            "benchmark_name": benchmark_name,
+                            "benchmark_name": run_benchmark_name,
                             "status": run.status,
                             "total_questions": run.total_questions or 0,
                             "processed_count": run.processed_count or 0,
@@ -883,9 +902,14 @@ def register_database_routes(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error listing verification runs: {e!s}") from e
 
-    @app.post("/api/database/load-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
-    async def load_verification_results_endpoint(
-        request: LoadVerificationResultsRequest,
+    @app.get("/api/v2/verification-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
+    async def get_verification_results_v2(
+        storage_url: str,
+        run_id: int | None = None,
+        benchmark_name: str | None = None,
+        question_id: str | None = None,
+        answering_model: str | None = None,
+        limit: int | None = None,
     ) -> LoadVerificationResultsResponse:
         """Load verification results with filtering options."""
         from ..exceptions import ServiceUnavailableError
@@ -894,16 +918,16 @@ def register_database_routes(
             raise ServiceUnavailableError("Storage functionality not available")
 
         try:
-            db_config = DBConfig(storage_url=request.storage_url)
+            db_config = DBConfig(storage_url=storage_url)
 
             # Load results using the storage function with as_dict=False for list format
             results = load_verification_results(
                 db_config=db_config,
-                run_id=request.run_id,
-                benchmark_name=request.benchmark_name,
-                question_id=request.question_id,
-                answering_model=request.answering_model,
-                limit=request.limit,
+                run_id=run_id,
+                benchmark_name=benchmark_name,
+                question_id=question_id,
+                answering_model=answering_model,
+                limit=limit,
                 as_dict=False,
             )
 
@@ -935,258 +959,3 @@ def register_database_routes(
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading verification results: {e!s}") from e
-
-    # =========================================================================
-    # V2 RESTful Routes
-    # =========================================================================
-    # These routes follow REST conventions using noun-based resource names.
-    # They delegate to the existing v1 handlers for implementation consistency.
-    #
-    # V1 -> V2 Route Mapping:
-    #   POST /api/database/connect -> POST /api/v2/databases/connections
-    #   GET /api/database/benchmarks -> GET /api/v2/benchmarks
-    #   POST /api/database/load-benchmark -> GET /api/v2/benchmarks/{name}
-    #   POST /api/database/create-benchmark -> POST /api/v2/benchmarks
-    #   POST /api/database/save-benchmark -> PUT /api/v2/benchmarks/{name}
-    #   POST /api/database/resolve-duplicates -> POST /api/v2/benchmarks/{name}/duplicates
-    #   POST /api/database/init -> POST /api/v2/databases
-    #   GET /api/database/list-databases -> GET /api/v2/databases
-    #   DELETE /api/database/delete -> DELETE /api/v2/databases
-    #   DELETE /api/database/delete-benchmark -> DELETE /api/v2/benchmarks/{name}
-    #   POST /api/database/import-results -> POST /api/v2/benchmarks/{name}/results
-    #   POST /api/database/verification-runs -> GET /api/v2/verification-runs
-    #   POST /api/database/load-results -> GET /api/v2/verification-results
-    # =========================================================================
-
-    @app.post("/api/v2/databases/connections", response_model=DatabaseConnectResponse)  # type: ignore[misc]
-    async def connect_database_v2(request: DatabaseConnectRequest) -> DatabaseConnectResponse:
-        """Connect to a database (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/connect.
-        Creates a connection resource to verify database connectivity.
-
-        Args:
-            request: Connection request with storage_url and create_if_missing flag.
-
-        Returns:
-            DatabaseConnectResponse with connection status and benchmark count.
-        """
-        return await connect_database_endpoint(request)
-
-    @app.get("/api/v2/benchmarks", response_model=BenchmarkListResponse)  # type: ignore[misc]
-    async def list_benchmarks_v2(storage_url: str) -> BenchmarkListResponse:
-        """List all benchmarks (RESTful v2 endpoint).
-
-        This is the RESTful alternative to GET /api/database/benchmarks.
-
-        Args:
-            storage_url: Database connection URL.
-
-        Returns:
-            BenchmarkListResponse with list of benchmarks.
-        """
-        return await list_benchmarks_endpoint(storage_url)
-
-    @app.get("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkLoadResponse)  # type: ignore[misc]
-    async def get_benchmark_v2(benchmark_name: str, storage_url: str) -> BenchmarkLoadResponse:
-        """Get a specific benchmark (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/load-benchmark.
-        Uses GET method since it's a read operation.
-
-        Args:
-            benchmark_name: Name of the benchmark to load.
-            storage_url: Database connection URL.
-
-        Returns:
-            BenchmarkLoadResponse with checkpoint data.
-        """
-        # Create request object to call existing handler
-        request = BenchmarkLoadRequest(storage_url=storage_url, benchmark_name=benchmark_name)
-        return await load_benchmark_endpoint(request)
-
-    @app.post("/api/v2/benchmarks", response_model=BenchmarkCreateResponse, status_code=201)  # type: ignore[misc]
-    async def create_benchmark_v2(request: BenchmarkCreateRequest) -> BenchmarkCreateResponse:
-        """Create a new benchmark (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/create-benchmark.
-
-        Args:
-            request: Create request with name, description, version, and creator.
-
-        Returns:
-            BenchmarkCreateResponse with created benchmark data.
-        """
-        return await create_benchmark_endpoint(request)
-
-    @app.put("/api/v2/benchmarks/{benchmark_name}", response_model=BenchmarkSaveResponse)  # type: ignore[misc]
-    async def update_benchmark_v2(benchmark_name: str, request: BenchmarkSaveRequestV2) -> BenchmarkSaveResponse:
-        """Update/save a benchmark (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/save-benchmark.
-        Uses PUT method since it replaces the benchmark resource.
-
-        Args:
-            benchmark_name: Name of the benchmark to save (from URL path).
-            request: Save request with checkpoint data (v2 schema without benchmark_name).
-
-        Returns:
-            BenchmarkSaveResponse with save status.
-        """
-        # Construct full request with benchmark_name from URL path
-        full_request = BenchmarkSaveRequest(
-            storage_url=request.storage_url,
-            benchmark_name=benchmark_name,
-            checkpoint_data=request.checkpoint_data,
-            detect_duplicates=request.detect_duplicates,
-        )
-        return await save_benchmark_endpoint(full_request)
-
-    @app.post("/api/v2/benchmarks/{benchmark_name}/duplicates", response_model=DuplicateResolutionResponse)  # type: ignore[misc]
-    async def resolve_benchmark_duplicates_v2(
-        benchmark_name: str, request: DuplicateResolutionRequest
-    ) -> DuplicateResolutionResponse:
-        """Resolve duplicate questions in a benchmark (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/resolve-duplicates.
-
-        Args:
-            benchmark_name: Name of the benchmark.
-            request: Resolution request with checkpoint data and resolutions.
-
-        Returns:
-            DuplicateResolutionResponse with resolution counts.
-        """
-        # Override benchmark_name from URL path for consistency
-        request.benchmark_name = benchmark_name
-        return await resolve_duplicates_endpoint(request)
-
-    @app.post("/api/v2/databases")  # type: ignore[misc]
-    async def init_database_v2(request: dict[str, Any]) -> dict[str, Any]:
-        """Initialize a new database (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/init.
-        Creates a new database resource.
-
-        Args:
-            request: Dict with storage_url.
-
-        Returns:
-            Success response with database info.
-        """
-        return await init_database_endpoint(request)  # type: ignore[no-any-return]
-
-    @app.get("/api/v2/databases", response_model=ListDatabasesResponse)  # type: ignore[misc]
-    async def list_databases_v2() -> ListDatabasesResponse:
-        """List all databases (RESTful v2 endpoint).
-
-        This is the RESTful alternative to GET /api/database/list-databases.
-
-        Returns:
-            ListDatabasesResponse with list of database files.
-        """
-        return await list_databases_endpoint()
-
-    @app.delete("/api/v2/databases", status_code=204)  # type: ignore[misc]
-    async def delete_database_v2(request: DeleteDatabaseRequest) -> None:
-        """Delete a database (RESTful v2 endpoint).
-
-        This is the RESTful alternative to DELETE /api/database/delete.
-
-        Args:
-            request: Delete request with storage_url.
-
-        Returns:
-            None (204 No Content).
-        """
-        return await delete_database_endpoint(request)  # type: ignore[no-any-return]
-
-    @app.delete("/api/v2/benchmarks/{benchmark_name}", response_model=DeleteBenchmarkResponse)  # type: ignore[misc]
-    async def delete_benchmark_v2(benchmark_name: str, storage_url: str) -> DeleteBenchmarkResponse:
-        """Delete a benchmark (RESTful v2 endpoint).
-
-        This is the RESTful alternative to DELETE /api/database/delete-benchmark.
-
-        Args:
-            benchmark_name: Name of the benchmark to delete.
-            storage_url: Database connection URL.
-
-        Returns:
-            DeleteBenchmarkResponse with deletion counts.
-        """
-        # Create request object to call existing handler
-        request = DeleteBenchmarkRequest(storage_url=storage_url, benchmark_name=benchmark_name)
-        return await delete_benchmark_endpoint(request)
-
-    @app.post("/api/v2/benchmarks/{benchmark_name}/results", response_model=ImportResultsResponse)  # type: ignore[misc]
-    async def import_benchmark_results_v2(benchmark_name: str, request: ImportResultsRequest) -> ImportResultsResponse:
-        """Import verification results for a benchmark (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/import-results.
-
-        Args:
-            benchmark_name: Name of the benchmark.
-            request: Import request with JSON data and run settings.
-
-        Returns:
-            ImportResultsResponse with import counts.
-        """
-        # Override benchmark_name from URL path for consistency
-        request.benchmark_name = benchmark_name
-        return await import_results_endpoint(request)
-
-    @app.get("/api/v2/verification-runs", response_model=ListVerificationRunsResponse)  # type: ignore[misc]
-    async def list_verification_runs_v2(
-        storage_url: str, benchmark_name: str | None = None
-    ) -> ListVerificationRunsResponse:
-        """List verification runs (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/verification-runs.
-        Uses GET method since it's a read operation.
-
-        Args:
-            storage_url: Database connection URL.
-            benchmark_name: Optional benchmark name filter.
-
-        Returns:
-            ListVerificationRunsResponse with list of runs.
-        """
-        # Create request object to call existing handler
-        request = ListVerificationRunsRequest(storage_url=storage_url, benchmark_name=benchmark_name)
-        return await list_verification_runs_endpoint(request)
-
-    @app.get("/api/v2/verification-results", response_model=LoadVerificationResultsResponse)  # type: ignore[misc]
-    async def get_verification_results_v2(
-        storage_url: str,
-        run_id: int | None = None,
-        benchmark_name: str | None = None,
-        question_id: str | None = None,
-        answering_model: str | None = None,
-        limit: int | None = None,
-    ) -> LoadVerificationResultsResponse:
-        """Get verification results (RESTful v2 endpoint).
-
-        This is the RESTful alternative to POST /api/database/load-results.
-        Uses GET method since it's a read operation.
-
-        Args:
-            storage_url: Database connection URL.
-            run_id: Optional run ID filter.
-            benchmark_name: Optional benchmark name filter.
-            question_id: Optional question ID filter.
-            answering_model: Optional model filter.
-            limit: Optional result limit.
-
-        Returns:
-            LoadVerificationResultsResponse with results.
-        """
-        # Create request object to call existing handler
-        request = LoadVerificationResultsRequest(
-            storage_url=storage_url,
-            run_id=run_id,
-            benchmark_name=benchmark_name,
-            question_id=question_id,
-            answering_model=answering_model,
-            limit=limit,
-        )
-        return await load_verification_results_endpoint(request)

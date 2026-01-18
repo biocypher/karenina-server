@@ -41,7 +41,7 @@ class TestTemplateGenerationAPI:
         mock_service.start_generation.return_value = "test-job-id"
 
         response = client.post(
-            "/api/generate-answer-templates",
+            "/api/v2/templates/generation",
             json={
                 "questions": sample_questions,
                 "config": {
@@ -63,7 +63,7 @@ class TestTemplateGenerationAPI:
     def test_start_generation_llm_unavailable(self, client, sample_questions):
         """Test template generation when LLM is unavailable."""
         response = client.post(
-            "/api/generate-answer-templates",
+            "/api/v2/templates/generation",
             json={
                 "questions": sample_questions,
                 "config": {
@@ -95,7 +95,7 @@ class TestTemplateGenerationAPI:
         }
         mock_service.get_progress.return_value = mock_status
 
-        response = client.get("/api/generation-progress/test-job-id")
+        response = client.get("/api/v2/templates/generation/test-job-id/progress")
 
         assert response.status_code == 200
         data = response.json()
@@ -108,7 +108,7 @@ class TestTemplateGenerationAPI:
         """Test progress retrieval for non-existent job."""
         mock_service.get_progress.return_value = None
 
-        response = client.get("/api/generation-progress/nonexistent-job")
+        response = client.get("/api/v2/templates/generation/nonexistent-job/progress")
 
         assert response.status_code == 404
         assert "Job not found" in response.json()["detail"]
@@ -119,7 +119,7 @@ class TestTemplateGenerationAPI:
         """Test successful job cancellation."""
         mock_service.cancel_job.return_value = True
 
-        response = client.post("/api/cancel-generation/test-job-id")
+        response = client.delete("/api/v2/templates/generation/test-job-id")
 
         assert response.status_code == 200
         assert "Job cancelled successfully" in response.json()["message"]
@@ -130,7 +130,7 @@ class TestTemplateGenerationAPI:
         """Test cancellation of non-existent job."""
         mock_service.cancel_job.return_value = False
 
-        response = client.post("/api/cancel-generation/nonexistent-job")
+        response = client.delete("/api/v2/templates/generation/nonexistent-job")
 
         assert response.status_code == 404
         assert "Job not found or cannot be cancelled" in response.json()["detail"]
@@ -138,7 +138,7 @@ class TestTemplateGenerationAPI:
     def test_invalid_request_data(self, client):
         """Test API with invalid request data."""
         response = client.post(
-            "/api/generate-answer-templates",
+            "/api/v2/templates/generation",
             json={
                 "config": {"model_name": "gemini-2.0-flash", "model_provider": "google_genai", "interface": "langchain"}
             },
