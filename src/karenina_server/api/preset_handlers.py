@@ -145,32 +145,42 @@ def _generate_preset_summary(config_dict: dict[str, Any]) -> dict[str, Any]:
 # =============================================================================
 
 
-@router.get("/v2/presets", response_model=dict[str, list[PresetSummary]])
-async def list_presets_v2() -> dict[str, list[PresetSummary]]:
+@router.get("/v2/presets")
+async def list_presets_v2() -> dict[str, Any]:
     """Get all presets with summary information (v2 endpoint)."""
     try:
         presets_dict = preset_service.list_presets()
 
-        # Convert to list of summaries
+        # Convert to list of summaries, skipping malformed presets
         presets_list = []
+        skipped_presets: list[str] = []
         for _preset_id, preset_data in presets_dict.items():
-            # Generate summary from config
-            summary = _generate_preset_summary(preset_data.get("config", {}))
+            try:
+                # Generate summary from config
+                summary = _generate_preset_summary(preset_data.get("config", {}))
 
-            preset_summary = PresetSummary(
-                id=preset_data["id"],
-                name=preset_data["name"],
-                description=preset_data.get("description"),
-                created_at=preset_data["created_at"],
-                updated_at=preset_data["updated_at"],
-                summary=summary,
-            )
-            presets_list.append(preset_summary)
+                preset_summary = PresetSummary(
+                    id=preset_data["id"],
+                    name=preset_data["name"],
+                    description=preset_data.get("description"),
+                    created_at=preset_data["created_at"],
+                    updated_at=preset_data["updated_at"],
+                    summary=summary,
+                )
+                presets_list.append(preset_summary)
+            except (KeyError, ValueError, TypeError) as e:
+                preset_name = preset_data.get("name", preset_data.get("id", _preset_id))
+                logger.warning(f"Skipping malformed preset '{preset_name}': {e}")
+                skipped_presets.append(str(preset_name))
 
         # Sort by name
         presets_list.sort(key=lambda p: p.name.lower())
 
-        return {"presets": presets_list}
+        result: dict[str, Any] = {"presets": presets_list}
+        if skipped_presets:
+            result["warnings"] = [f"Skipped {len(skipped_presets)} malformed preset(s): {', '.join(skipped_presets)}"]
+
+        return result
 
     except Exception as e:
         logger.error(f"Error listing presets: {e}")
