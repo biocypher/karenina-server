@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from ..constants import TEMP_EXPORT_DIR, TEMP_UPLOAD_DIR
 
 try:
-    from karenina.domain.questions.extractor import extract_and_generate_questions, get_file_preview
+    from karenina.benchmark.authoring.questions.extractor import extract_and_generate_questions, get_file_preview
 
     EXTRACTOR_AVAILABLE = True
 except ImportError:
