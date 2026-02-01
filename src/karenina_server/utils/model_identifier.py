@@ -16,23 +16,26 @@ class ModelIdentifier:
 
     Attributes:
         answering_model: The model name/identifier.
+        interface: The adapter interface (e.g., 'langchain', 'openrouter', 'claude_agent_sdk').
         mcp_servers: Sorted tuple of MCP server names for consistent hashing.
     """
 
     answering_model: str
-    mcp_servers: tuple[str, ...]
+    interface: str = "langchain"
+    mcp_servers: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ModelIdentifier:
         """Create identifier from a model configuration dict.
 
         Args:
-            config: Dict with 'answering_model' and optional 'mcp_config' keys.
+            config: Dict with 'answering_model', optional 'interface', and optional 'mcp_config' keys.
 
         Returns:
             ModelIdentifier instance.
         """
         answering_model = config.get("answering_model", "")
+        interface = config.get("interface", "langchain")
         mcp_config_str = str(config.get("mcp_config", "[]"))
 
         try:
@@ -44,6 +47,7 @@ class ModelIdentifier:
 
         return cls(
             answering_model=answering_model,
+            interface=interface,
             mcp_servers=tuple(sorted(mcp_servers)),
         )
 
@@ -52,12 +56,12 @@ class ModelIdentifier:
         """Human-readable display name for the model.
 
         Returns:
-            Formatted string like "model-name (MCP: [server1, server2])".
+            Formatted string like "interface:model-name +[server1, server2]".
         """
+        base = f"{self.interface}:{self.answering_model}"
         if self.mcp_servers:
-            servers_str = json.dumps(list(self.mcp_servers))
-            return f"{self.answering_model} (MCP: {servers_str})"
-        return self.answering_model
+            return f"{base} +[{', '.join(self.mcp_servers)}]"
+        return base
 
     def matches_servers(self, servers: list[str] | None) -> bool:
         """Check if this identifier matches the given MCP servers.
