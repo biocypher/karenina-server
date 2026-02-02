@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from karenina.schemas.workflow.verification import VerificationConfig
+from karenina.schemas.workflow.verification.config_presets import (
+    get_default_presets_dir,
+    list_preset_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +27,7 @@ class BenchmarkPresetService:
             presets_dir_path: Path to presets directory. If None, uses default location from env or project root.
         """
         if presets_dir_path is None:
-            # Check environment variable first
-            env_presets_dir = os.getenv("KARENINA_PRESETS_DIR")
-            if env_presets_dir:
-                presets_dir_path = Path(env_presets_dir)
-            else:
-                # Default to presets/ directory in project root
-                project_root = Path(__file__).parent.parent.parent.parent.parent
-                presets_dir_path = project_root / "presets"
+            presets_dir_path = get_default_presets_dir()
 
         # Validate and canonicalize path to prevent traversal attacks
         self.presets_dir_path = self._validate_dir_path(presets_dir_path)
@@ -129,12 +126,8 @@ class BenchmarkPresetService:
         """
         presets: dict[str, dict[str, Any]] = {}
 
-        if not self.presets_dir_path.exists():
-            return presets
-
-        # Scan for .json files
-        for filepath in self.presets_dir_path.glob("*.json"):
-            preset = self._load_preset_from_file(filepath)
+        for entry in list_preset_files(self.presets_dir_path):
+            preset = self._load_preset_from_file(Path(entry["filepath"]))
             if preset and "id" in preset:
                 presets[preset["id"]] = preset
 
