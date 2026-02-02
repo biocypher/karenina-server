@@ -7,6 +7,7 @@ import time
 from unittest.mock import patch
 
 import pytest
+from karenina.schemas.verification import ModelIdentity
 from karenina.schemas.workflow import FinishedTemplate, ModelConfig, VerificationConfig, VerificationResult
 from karenina.schemas.workflow.verification.result_components import VerificationResultMetadata
 
@@ -19,8 +20,8 @@ def make_mock_result(question_id: str = "test_q1") -> VerificationResult:
             template_id="no_template",
             completed_without_errors=True,
             question_text="What is 2+2?",
-            answering_model="anthropic/claude-haiku-4-5",
-            parsing_model="anthropic/claude-haiku-4-5",
+            answering=ModelIdentity(interface="langchain", model_name="claude-haiku-4-5"),
+            parsing=ModelIdentity(interface="langchain", model_name="claude-haiku-4-5"),
             execution_time=1.0,
             timestamp="2024-01-01T00:00:00",
             result_id="test123456789012",

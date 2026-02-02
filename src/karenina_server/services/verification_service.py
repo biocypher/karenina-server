@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any
 
 from karenina.schemas.domain import Rubric
+from karenina.schemas.verification import ModelIdentity
 from karenina.schemas.workflow import (
     FinishedTemplate,
     VerificationConfig,
@@ -688,16 +689,9 @@ class VerificationService:
                         )
                         rep = replicate
 
-                    # For OpenRouter interface, don't include provider in the model string
-                    if answering_model.interface == "openrouter":
-                        answering_model_str = answering_model.model_name
-                    else:
-                        answering_model_str = f"{answering_model.model_provider}/{answering_model.model_name}"
-
-                    if parsing_model.interface == "openrouter":
-                        parsing_model_str = parsing_model.model_name
-                    else:
-                        parsing_model_str = f"{parsing_model.model_provider}/{parsing_model.model_name}"
+                    answering_identity = ModelIdentity.from_model_config(answering_model, role="answering")
+                    parsing_identity = ModelIdentity.from_model_config(parsing_model, role="parsing")
+                    ts = datetime.now().isoformat()
 
                     error_result = VerificationResult(
                         metadata=VerificationResultMetadata(
@@ -707,14 +701,20 @@ class VerificationService:
                             error=f"Verification error: {error!s}",
                             question_text=template.question_text,
                             keywords=template.keywords,
-                            answering_model=answering_model_str,
-                            parsing_model=parsing_model_str,
+                            answering=answering_identity,
+                            parsing=parsing_identity,
                             answering_system_prompt=answering_model.system_prompt,
                             parsing_system_prompt=parsing_model.system_prompt,
                             execution_time=0.0,
-                            timestamp=datetime.now().isoformat(),
+                            timestamp=ts,
+                            result_id=VerificationResultMetadata.compute_result_id(
+                                question_id=template.question_id,
+                                answering=answering_identity,
+                                parsing=parsing_identity,
+                                timestamp=ts,
+                                replicate=rep,
+                            ),
                             run_name=job.run_name,
-                            job_id=job.job_id,
                             replicate=rep,
                         ),
                         template=VerificationResultTemplate(

@@ -34,6 +34,24 @@ except ImportError:
 TRAIT_KEYS = ("llm_traits", "regex_traits", "callable_traits", "metric_traits")
 
 
+def _format_model_display(identity_dict: dict[str, Any]) -> str:
+    """Format a ModelIdentity dict as a display string.
+
+    Args:
+        identity_dict: Dict with 'interface', 'model_name', and optional 'tools' keys.
+
+    Returns:
+        Formatted display string like "interface:model_name +[tool1, tool2]".
+    """
+    interface = identity_dict.get("interface", "")
+    model_name = identity_dict.get("model_name", "")
+    tools = identity_dict.get("tools", [])
+    base = f"{interface}:{model_name}" if interface else model_name
+    if tools:
+        return f"{base} +[{', '.join(tools)}]"
+    return base
+
+
 def _serialize_trait(trait: Any) -> dict[str, Any]:
     """Serialize a single trait to dict format.
 
@@ -940,8 +958,8 @@ def register_database_routes(
                         "run_id": result.get("run_id", ""),
                         "question_id": result.get("metadata", {}).get("question_id", ""),
                         "question_text": result.get("metadata", {}).get("question_text", ""),
-                        "answering_model": result.get("metadata", {}).get("answering_model", ""),
-                        "parsing_model": result.get("metadata", {}).get("parsing_model", ""),
+                        "answering_model": _format_model_display(result.get("metadata", {}).get("answering", {})),
+                        "parsing_model": _format_model_display(result.get("metadata", {}).get("parsing", {})),
                         "completed_without_errors": result.get("metadata", {}).get("completed_without_errors", False),
                         "template_verify_result": result.get("template", {}).get("verify_result")
                         if result.get("template")

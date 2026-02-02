@@ -32,8 +32,8 @@ def sample_results() -> dict[str, dict[str, object]]:
                 "template_id": "template-1",
                 "question_text": "What is 2+2?",
                 "keywords": ["math"],
-                "answering_model": "anthropic/claude-haiku-4-5",
-                "parsing_model": "anthropic/claude-haiku-4-5",
+                "answering": {"interface": "langchain", "model_name": "claude-haiku-4-5", "tools": []},
+                "parsing": {"interface": "langchain", "model_name": "claude-haiku-4-5", "tools": []},
                 "replicate": 1,
                 "completed_without_errors": True,
                 "error": None,
@@ -66,8 +66,8 @@ def sample_results() -> dict[str, dict[str, object]]:
                 "template_id": "template-2",
                 "question_text": "What is the capital of France?",
                 "keywords": ["geography"],
-                "answering_model": "anthropic/claude-haiku-4-5",
-                "parsing_model": "anthropic/claude-haiku-4-5",
+                "answering": {"interface": "langchain", "model_name": "claude-haiku-4-5", "tools": []},
+                "parsing": {"interface": "langchain", "model_name": "claude-haiku-4-5", "tools": []},
                 "replicate": 1,
                 "completed_without_errors": True,
                 "error": None,
@@ -100,8 +100,8 @@ def sample_results() -> dict[str, dict[str, object]]:
                 "template_id": "template-1",
                 "question_text": "What is 2+2?",
                 "keywords": ["math"],
-                "answering_model": "anthropic/claude-sonnet-4",
-                "parsing_model": "anthropic/claude-haiku-4-5",
+                "answering": {"interface": "langchain", "model_name": "claude-sonnet-4", "tools": []},
+                "parsing": {"interface": "langchain", "model_name": "claude-haiku-4-5", "tools": []},
                 "replicate": 1,
                 "completed_without_errors": True,
                 "error": None,
@@ -191,10 +191,10 @@ class TestCompareModelsEndpoints:
             json={
                 "results": sample_results,
                 "models": [
-                    {"answering_model": "anthropic/claude-haiku-4-5"},
-                    {"answering_model": "anthropic/claude-sonnet-4"},
+                    {"answering_model": "claude-haiku-4-5", "interface": "langchain"},
+                    {"answering_model": "claude-sonnet-4", "interface": "langchain"},
                 ],
-                "parsing_model": "anthropic/claude-haiku-4-5",
+                "parsing_model": "langchain:claude-haiku-4-5",
             },
         )
 
@@ -212,7 +212,7 @@ class TestCompareModelsEndpoints:
             json={
                 "results": sample_results,
                 "models": [],
-                "parsing_model": "gpt-4o-mini",
+                "parsing_model": "langchain:gpt-4o-mini",
             },
         )
 
@@ -225,8 +225,8 @@ class TestCompareModelsEndpoints:
             "/api/v2/verifications/compare",
             json={
                 "results": {},
-                "models": [{"answering_model": "gpt-4o-mini", "mcp_config": "[]"}],
-                "parsing_model": "gpt-4o-mini",
+                "models": [{"answering_model": "gpt-4o-mini", "interface": "langchain", "mcp_config": "[]"}],
+                "parsing_model": "langchain:gpt-4o-mini",
             },
         )
 
