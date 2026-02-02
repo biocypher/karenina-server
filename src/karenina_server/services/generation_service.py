@@ -8,7 +8,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from karenina.domain.answers.generator import generate_answer_template
+from karenina.benchmark.authoring.answers.generator import generate_answer_template
 from karenina.utils.code import extract_and_combine_codeblocks
 
 from .progress_broadcaster import ProgressBroadcaster

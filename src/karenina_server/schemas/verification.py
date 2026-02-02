@@ -76,8 +76,12 @@ class CompareModelsRequest(BaseModel):
     """Request to compare multiple models with per-model summaries and heatmap data."""
 
     results: dict[str, Any] = Field(description="Dict of verification results (result_id -> VerificationResult data)")
-    models: list[dict[str, Any]] = Field(description="List of model configs to compare [{answering_model, mcp_config}]")
-    parsing_model: str | None = Field(default=None, description="Parsing model to filter by for fair comparison")
+    models: list[dict[str, Any]] = Field(
+        description="List of model configs to compare [{answering_model, interface, mcp_config}]"
+    )
+    parsing_model: str | None = Field(
+        default=None, description="Parsing model display string (interface:model_name) to filter by for fair comparison"
+    )
     replicate: int | None = Field(default=None, description="Optional replicate number to filter by")
 
 

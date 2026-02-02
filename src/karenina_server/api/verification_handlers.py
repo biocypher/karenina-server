@@ -525,7 +525,10 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
                 try:
                     result = VerificationResult(**result_data)
                     # Filter by parsing model if specified
-                    if parsing_model_filter is not None and result.metadata.parsing_model != parsing_model_filter:
+                    if (
+                        parsing_model_filter is not None
+                        and result.metadata.parsing.display_string != parsing_model_filter
+                    ):
                         continue
 
                     all_results.append(result)
@@ -543,12 +546,13 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             for model_config in models_to_compare:
                 model_id = ModelIdentifier.from_config(model_config)
 
-                # Filter results for this model
+                # Filter results for this model by interface, model name, and tools
                 filtered = [
                     result
                     for result in all_results
-                    if result.metadata.answering_model == model_id.answering_model
-                    and model_id.matches_servers(get_attr_safe(result.template, "answering_mcp_servers") or [])
+                    if result.metadata.answering.model_name == model_id.answering_model
+                    and result.metadata.answering.interface == model_id.interface
+                    and model_id.matches_servers(list(result.metadata.answering.tools))
                 ]
 
                 if filtered:

@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 try:
-    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.adapters.langchain.mcp  # noqa: F401 - Test if MCP module is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -66,7 +66,7 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
             raise HTTPException(status_code=503, detail="LLM functionality not available")
 
         try:
-            from karenina.infrastructure.llm.mcp_utils import create_mcp_client_and_tools
+            from karenina.adapters.langchain.mcp import create_mcp_client_and_tools
 
             # Create MCP URLs dict for the single server
             mcp_urls_dict = {request.server_name: request.server_url}
