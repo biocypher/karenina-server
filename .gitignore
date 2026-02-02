@@ -129,3 +129,4 @@ src/karenina_server/webapp/
 #internal instructions
 RELEASE.md
 SEMANTIC_VERSIONING.md
+src/karenina_server/**/CLAUDE.md

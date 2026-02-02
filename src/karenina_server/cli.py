@@ -43,7 +43,7 @@ def serve_webapp(
     except ImportError as e:
         print(f"Error: Missing dependencies for serving webapp: {e}")
         print("Please install the webapp dependencies:")
-        print("  pip install otarbench[webapp]")
+        print("  pip install karenina-server[webapp]")
         sys.exit(1)
     except Exception as e:
         print(f"Error starting server: {e}")

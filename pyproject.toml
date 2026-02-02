@@ -83,6 +83,15 @@ filterwarnings = [
     "ignore::PendingDeprecationWarning",
 ]
 addopts = "-v --tb=short"
+markers = [
+    "unit: Pure logic tests - no I/O, no external calls",
+    "integration: TestClient, file I/O, threading tests",
+    "e2e: End-to-end workflow tests",
+    "slow: Tests taking > 1 second",
+    "api: API endpoint tests",
+    "service: Service layer tests",
+    "middleware: Middleware tests",
+]
 
 [tool.coverage.run]
 source = ["src/karenina_server"]
@@ -117,6 +126,11 @@ warn_no_return = true
 follow_imports = "normal"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120
@@ -132,6 +146,7 @@ select = [
     "UP",  # pyupgrade
     "ARG", # flake8-unused-arguments
     "SIM", # flake8-simplify
+    "T201", # flake8-print: print found
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
@@ -145,6 +160,10 @@ known-first-party = ["karenina_server"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG001"]  # Unused function argument
+# TODO: Remove T201 ignores after migrating remaining print statements to logging
+"src/karenina_server/cli.py" = ["T201"]  # CLI user-facing messages
+"src/karenina_server/server.py" = ["T201"]  # Server startup/shutdown messages
+"src/karenina_server/api/generation_handlers.py" = ["T201"]  # To be fixed in separate PR
 
 [tool.vulture]
 # Configure vulture for dead code detection

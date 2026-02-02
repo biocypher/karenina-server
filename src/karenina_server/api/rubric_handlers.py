@@ -10,12 +10,27 @@ from karenina_server.services.rubric_service import rubric_service
 router = APIRouter()
 
 
-@router.post("/rubric", response_model=dict[str, str])
-async def create_or_update_rubric(rubric: Rubric) -> dict[str, str]:
+# =============================================================================
+# V2 API Endpoints (RESTful)
+# =============================================================================
+
+
+@router.get("/v2/rubrics/current", response_model=Rubric | None)
+async def get_current_rubric_v2() -> Rubric | None:
+    """Get the current rubric (v2 endpoint).
+
+    Returns the rubric that is currently configured for evaluation,
+    or None if no rubric is set.
     """
-    Create or update the current rubric.
+    return rubric_service.get_current_rubric()
+
+
+@router.put("/v2/rubrics/current", response_model=dict[str, str])
+async def update_current_rubric_v2(rubric: Rubric) -> dict[str, str]:
+    """Create or update the current rubric (v2 endpoint).
 
     This endpoint stores the rubric that will be used for evaluation.
+    Uses PUT since we're replacing the entire rubric resource.
     """
     try:
         # Validate rubric has at least one trait (LLM, regex, callable, or metric)
@@ -50,21 +65,9 @@ async def create_or_update_rubric(rubric: Rubric) -> dict[str, str]:
         raise HTTPException(status_code=500, detail=f"Error saving rubric: {str(e)}") from e
 
 
-@router.get("/rubric", response_model=Rubric | None)
-async def get_current_rubric() -> Rubric | None:
-    """
-    Get the current rubric.
-
-    Returns the rubric that is currently configured for evaluation,
-    or None if no rubric is set.
-    """
-    return rubric_service.get_current_rubric()
-
-
-@router.delete("/rubric", response_model=dict[str, str])
-async def delete_current_rubric() -> dict[str, str]:
-    """
-    Delete the current rubric.
+@router.delete("/v2/rubrics/current", response_model=dict[str, str])
+async def delete_current_rubric_v2() -> dict[str, str]:
+    """Delete the current rubric (v2 endpoint).
 
     This removes the currently configured rubric.
     """

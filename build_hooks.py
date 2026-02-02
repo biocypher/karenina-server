@@ -38,10 +38,21 @@ class CustomBuildHook(BuildHookInterface):  # type: ignore[misc]
             if webapp_dist.exists():
                 self.app.display_info("GUI source not found, using pre-built webapp assets")
                 return
-            raise RuntimeError(
-                f"karenina-gui not found at {gui_dir} and no pre-built assets exist. "
-                "Please ensure karenina-gui is available or include pre-built assets."
+            # Create a minimal placeholder for dev/CI installs without GUI
+            self.app.display_warning(
+                f"karenina-gui not found at {gui_dir}. Creating placeholder webapp. "
+                "The web UI will not be available. Install from PyPI for the full webapp."
             )
+            webapp_dist.mkdir(parents=True, exist_ok=True)
+            (webapp_dist / "assets").mkdir(exist_ok=True)
+            (webapp_dist / "index.html").write_text(
+                "<!DOCTYPE html><html><head><title>Karenina Server</title></head>"
+                "<body><h1>Web UI Not Available</h1>"
+                "<p>This installation does not include the web UI. "
+                "Install from PyPI or build with karenina-gui available.</p>"
+                "</body></html>"
+            )
+            return
 
         self.app.display_info(f"Building karenina-gui from {gui_dir}")
 

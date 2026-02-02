@@ -1,17 +1,20 @@
 """Service for managing answer template generation with progress tracking."""
 
+import logging
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# Type alias for config - using TYPE_CHECKING to avoid circular imports
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from karenina.domain.answers.generator import generate_answer_template
+from karenina.benchmark.authoring.answers.generator import generate_answer_template
 from karenina.utils.code import extract_and_combine_codeblocks
 
 from .progress_broadcaster import ProgressBroadcaster
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     pass
@@ -132,13 +135,73 @@ class TemplateGenerationJob:
 
 
 class GenerationService:
-    """Service for managing template generation jobs."""
+    """Service for managing template generation jobs.
+
+    Lock Hierarchy (conc-005):
+        1. _shutdown_lock - Service-level shutdown coordination
+
+    Always acquire locks in this order to prevent deadlocks.
+    """
 
     def __init__(self, max_workers: int = 2):
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="generate-")
         self.jobs: dict[str, TemplateGenerationJob] = {}
         self.futures: dict[str, Any] = {}  # Add missing futures dict
         self.broadcaster = ProgressBroadcaster()
+        # Shutdown coordination (conc-001)
+        self._shutdown_event = threading.Event()
+        self._shutdown_lock = threading.Lock()
+        self._is_shutdown = False
+
+    def shutdown(self, wait: bool = True, cancel_pending: bool = False) -> None:
+        """Gracefully shut down the generation service (conc-001).
+
+        This method ensures clean shutdown of the ThreadPoolExecutor,
+        preventing resource leaks and orphaned threads.
+
+        Args:
+            wait: If True, block until all running jobs complete.
+                  If False, return immediately after signaling shutdown.
+            cancel_pending: If True, attempt to cancel pending (not yet started) futures.
+                           Running jobs will still complete unless interrupted.
+
+        Thread-safety: This method is thread-safe and idempotent.
+        """
+        with self._shutdown_lock:
+            if self._is_shutdown:
+                logger.debug("GenerationService.shutdown() called but already shut down")
+                return
+
+            logger.info("🛑 GenerationService shutting down...")
+            self._is_shutdown = True
+            self._shutdown_event.set()
+
+            # Optionally cancel pending futures
+            cancelled_count = 0
+            if cancel_pending:
+                for job_id, future in list(self.futures.items()):
+                    if future.cancel():
+                        cancelled_count += 1
+                        # Mark job as cancelled
+                        job = self.jobs.get(job_id)
+                        if job and job.status == "pending":
+                            job.status = "cancelled"
+                            job.cancelled = True
+                if cancelled_count > 0:
+                    logger.info(f"   Cancelled {cancelled_count} pending jobs")
+
+            # Count in-flight jobs
+            running_jobs = sum(1 for j in self.jobs.values() if j.status == "running")
+            if running_jobs > 0:
+                logger.info(f"   Waiting for {running_jobs} running job(s) to complete...")
+
+        # Shutdown executor (outside lock to avoid blocking other operations)
+        self.executor.shutdown(wait=wait, cancel_futures=cancel_pending)
+        logger.info("✓ GenerationService shutdown complete")
+
+    def is_shutdown(self) -> bool:
+        """Check if the service has been shut down."""
+        return self._is_shutdown
 
     def start_generation(
         self,
@@ -149,6 +212,10 @@ class GenerationService:
         max_workers: int | None = None,
     ) -> str:
         """Start a new template generation job."""
+        # Check if service is shutting down (conc-001)
+        if self._is_shutdown:
+            raise RuntimeError("GenerationService is shutting down, cannot accept new jobs")
+
         job_id = str(uuid.uuid4())
 
         # Create job
