@@ -578,12 +578,15 @@ class VerificationService:
             def progress_callback(current: int, total: int, result: VerificationResult | None) -> None:
                 """Update job progress and broadcast to WebSocket subscribers (thread-safe)."""
                 if result:
+                    # Get replicate info from result metadata
+                    replicate = result.metadata.replicate if result.metadata else None
+
                     # Distinguish between starting and completion events by timestamp
                     # Empty timestamp = starting, non-empty = completion
                     if not result.timestamp or result.timestamp == "":
                         # Task is starting - update under lock for thread safety
                         with self._get_job_lock(job.job_id):
-                            job.task_started(result.question_id)
+                            job.task_started(result.question_id, replicate=replicate)
                             job.current_question = result.question_id
                             job.percentage = ((current - 1) / total) * 100 if total > 0 else 0
 
@@ -591,7 +594,12 @@ class VerificationService:
                         self._emit_progress_event(
                             job.job_id,
                             "task_started",
-                            {"question_id": result.question_id, "current": current, "total": total},
+                            {
+                                "question_id": result.question_id,
+                                "replicate": replicate,
+                                "current": current,
+                                "total": total,
+                            },
                         )
                     else:
                         # Task is finished - update under lock for thread safety
@@ -599,7 +607,7 @@ class VerificationService:
 
                         with self._get_job_lock(job.job_id):
                             # task_finished now calculates duration internally from task_start_times
-                            job.task_finished(result.question_id, success)
+                            job.task_finished(result.question_id, success, replicate=replicate)
                             job.percentage = (current / total) * 100 if total > 0 else 0
 
                         # Broadcast task completed event
@@ -608,6 +616,7 @@ class VerificationService:
                             "task_completed",
                             {
                                 "question_id": result.question_id,
+                                "replicate": replicate,
                                 "current": current,
                                 "total": total,
                                 "success": success,
