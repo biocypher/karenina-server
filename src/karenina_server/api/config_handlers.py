@@ -86,10 +86,15 @@ class ConfigStatus(BaseModel):
 class DefaultConfig(BaseModel):
     """Model for default LLM configuration."""
 
-    default_interface: str = "langchain"  # langchain, openrouter, or openai_endpoint
+    default_interface: str = "langchain"  # langchain, openrouter, openai_endpoint, claude_tool, claude_agent_sdk
     default_provider: str = "anthropic"  # for langchain
     default_model: str = "claude-haiku-4-5"  # default model
     default_endpoint_base_url: str | None = None  # for openai_endpoint interface
+    # Anthropic-specific configuration (for claude_tool and claude_agent_sdk interfaces)
+    default_anthropic_base_url: str | None = None  # custom Anthropic API endpoint
+    default_anthropic_opus_model: str | None = None  # model ID for Opus tier
+    default_anthropic_sonnet_model: str | None = None  # model ID for Sonnet tier
+    default_anthropic_haiku_model: str | None = None  # model ID for Haiku tier
 
 
 # =============================================================================
@@ -201,6 +206,10 @@ async def get_default_config_v2() -> DefaultConfig:
             default_provider=provider,
             default_model=model,
             default_endpoint_base_url=defaults.get("default_endpoint_base_url"),
+            default_anthropic_base_url=defaults.get("default_anthropic_base_url"),
+            default_anthropic_opus_model=defaults.get("default_anthropic_opus_model"),
+            default_anthropic_sonnet_model=defaults.get("default_anthropic_sonnet_model"),
+            default_anthropic_haiku_model=defaults.get("default_anthropic_haiku_model"),
         )
     except Exception as e:
         logger.error(f"Error getting default configuration: {e}")
@@ -216,6 +225,10 @@ async def update_default_config_v2(config: DefaultConfig) -> dict[str, str | dic
             "default_provider": config.default_provider,
             "default_model": config.default_model,
             "default_endpoint_base_url": config.default_endpoint_base_url,
+            "default_anthropic_base_url": config.default_anthropic_base_url,
+            "default_anthropic_opus_model": config.default_anthropic_opus_model,
+            "default_anthropic_sonnet_model": config.default_anthropic_sonnet_model,
+            "default_anthropic_haiku_model": config.default_anthropic_haiku_model,
         }
 
         defaults_service.save_defaults(defaults_dict)

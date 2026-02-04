@@ -38,6 +38,11 @@ class DefaultsService:
             "default_provider": "anthropic",
             "default_model": "claude-haiku-4-5",
             "default_endpoint_base_url": None,
+            # Anthropic-specific defaults (for claude_tool and claude_agent_sdk interfaces)
+            "default_anthropic_base_url": None,
+            "default_anthropic_opus_model": None,
+            "default_anthropic_sonnet_model": None,
+            "default_anthropic_haiku_model": None,
         }
 
         # Lock file path (adjacent to defaults file)
@@ -146,7 +151,7 @@ class DefaultsService:
                 return False, f"Missing required field: {field}"
 
         # Validate interface
-        valid_interfaces = ["langchain", "openrouter", "openai_endpoint"]
+        valid_interfaces = ["langchain", "openrouter", "openai_endpoint", "claude_tool", "claude_agent_sdk"]
         if defaults["default_interface"] not in valid_interfaces:
             return False, f"Invalid interface. Must be one of: {', '.join(valid_interfaces)}"
 
@@ -165,6 +170,24 @@ class DefaultsService:
                     return False, "Invalid endpoint_base_url format (must include scheme and host)"
             except Exception:
                 return False, "Invalid endpoint_base_url format"
+
+        # Validate anthropic_base_url format if provided
+        anthropic_base_url = defaults.get("default_anthropic_base_url")
+        if anthropic_base_url:
+            try:
+                from urllib.parse import urlparse
+
+                result = urlparse(anthropic_base_url)
+                if not all([result.scheme, result.netloc]):
+                    return False, "Invalid anthropic_base_url format (must include scheme and host)"
+            except Exception:
+                return False, "Invalid anthropic_base_url format"
+
+        # For claude_tool and claude_agent_sdk, provider is implicitly anthropic
+        interface = defaults["default_interface"]
+        if interface in ("claude_tool", "claude_agent_sdk"):
+            # Provider is auto-set to anthropic for these interfaces
+            defaults["default_provider"] = "anthropic"
 
         # Validate provider (basic string validation)
         provider = defaults["default_provider"]
@@ -211,6 +234,11 @@ class DefaultsService:
                         "default_provider": saved_defaults["default_provider"],
                         "default_model": saved_defaults["default_model"],
                         "default_endpoint_base_url": saved_defaults.get("default_endpoint_base_url"),
+                        # Anthropic-specific defaults
+                        "default_anthropic_base_url": saved_defaults.get("default_anthropic_base_url"),
+                        "default_anthropic_opus_model": saved_defaults.get("default_anthropic_opus_model"),
+                        "default_anthropic_sonnet_model": saved_defaults.get("default_anthropic_sonnet_model"),
+                        "default_anthropic_haiku_model": saved_defaults.get("default_anthropic_haiku_model"),
                     }
                 else:
                     logger.warning(f"Invalid saved defaults: {error}, using fallback")
@@ -253,6 +281,11 @@ class DefaultsService:
                     "default_provider": defaults["default_provider"],
                     "default_model": defaults["default_model"],
                     "default_endpoint_base_url": defaults.get("default_endpoint_base_url"),
+                    # Anthropic-specific defaults
+                    "default_anthropic_base_url": defaults.get("default_anthropic_base_url"),
+                    "default_anthropic_opus_model": defaults.get("default_anthropic_opus_model"),
+                    "default_anthropic_sonnet_model": defaults.get("default_anthropic_sonnet_model"),
+                    "default_anthropic_haiku_model": defaults.get("default_anthropic_haiku_model"),
                     "saved_at": datetime.utcnow().isoformat() + "Z",
                 }
 
