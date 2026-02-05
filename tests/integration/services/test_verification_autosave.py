@@ -58,7 +58,7 @@ def sample_template():
 @pytest.fixture
 def basic_config():
     """Create a basic verification config."""
-    from karenina.schemas.workflow import ModelConfig
+    from karenina.schemas.config import ModelConfig
 
     return VerificationConfig(
         answering_models=[
