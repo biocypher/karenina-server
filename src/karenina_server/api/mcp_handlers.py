@@ -66,13 +66,13 @@ def register_mcp_routes(app: Any, MCPValidationRequest: Any, MCPValidationRespon
             raise HTTPException(status_code=503, detail="LLM functionality not available")
 
         try:
-            from karenina.adapters.langchain.mcp import create_mcp_client_and_tools
+            from karenina.adapters.langchain.mcp import acreate_mcp_client_and_tools
 
             # Create MCP URLs dict for the single server
             mcp_urls_dict = {request.server_name: request.server_url}
 
             # Get MCP client and tools (no filtering for validation)
-            _, tools = await create_mcp_client_and_tools(mcp_urls_dict, tool_filter=None)
+            _, tools = await acreate_mcp_client_and_tools(mcp_urls_dict, tool_filter=None)
 
             # Extract tool information
             tool_list = []
