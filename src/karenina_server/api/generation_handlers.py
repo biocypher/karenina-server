@@ -8,7 +8,7 @@ from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 try:
-    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.adapters.factory  # noqa: F401 - Test if adapter factory is available
 
     LLM_AVAILABLE = True
 except ImportError:

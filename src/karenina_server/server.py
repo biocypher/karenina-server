@@ -39,7 +39,7 @@ except ImportError:
 
 # Import LLM functionality from the karenina package
 try:
-    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.adapters.factory  # noqa: F401 - Test if adapter factory is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -47,7 +47,7 @@ except ImportError:
 
 # Import Question Extractor functionality
 try:
-    import karenina.domain.questions.extractor  # noqa: F401 - Test if extractor module is available
+    import karenina.benchmark.authoring.questions.extractor  # noqa: F401 - Test if extractor module is available
 
     EXTRACTOR_AVAILABLE = True
 except ImportError:

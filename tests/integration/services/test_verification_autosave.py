@@ -9,9 +9,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from karenina.schemas.verification import ModelIdentity
-from karenina.schemas.workflow import FinishedTemplate, VerificationConfig, VerificationResult
-from karenina.schemas.workflow.verification.result_components import VerificationResultMetadata
+from karenina.schemas.verification import (
+    FinishedTemplate,
+    ModelIdentity,
+    VerificationConfig,
+    VerificationResult,
+    VerificationResultMetadata,
+)
 
 
 def make_mock_result(question_id: str = "test_q1") -> VerificationResult:
@@ -58,7 +62,7 @@ def sample_template():
 @pytest.fixture
 def basic_config():
     """Create a basic verification config."""
-    from karenina.schemas.workflow import ModelConfig
+    from karenina.schemas.config import ModelConfig
 
     return VerificationConfig(
         answering_models=[

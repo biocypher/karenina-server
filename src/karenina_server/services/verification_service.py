@@ -10,15 +10,15 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
 from typing import Any
 
-from karenina.schemas.domain import Rubric
-from karenina.schemas.verification import ModelIdentity
-from karenina.schemas.workflow import (
+from karenina.schemas.entities import Rubric
+from karenina.schemas.results import VerificationResultSet
+from karenina.schemas.verification import (
     FinishedTemplate,
+    ModelIdentity,
     VerificationConfig,
     VerificationJob,
     VerificationResult,
     VerificationResultMetadata,
-    VerificationResultSet,
     VerificationResultTemplate,
 )
 from karenina.utils.checkpoint import generate_template_id
@@ -583,11 +583,13 @@ class VerificationService:
 
                     # Distinguish between starting and completion events by timestamp
                     # Empty timestamp = starting, non-empty = completion
-                    if not result.timestamp or result.timestamp == "":
+                    question_id = result.metadata.question_id
+                    timestamp = result.metadata.timestamp
+                    if not timestamp or timestamp == "":
                         # Task is starting - update under lock for thread safety
                         with self._get_job_lock(job.job_id):
-                            job.task_started(result.question_id, replicate=replicate)
-                            job.current_question = result.question_id
+                            job.task_started(question_id, replicate=replicate)
+                            job.current_question = question_id
                             job.percentage = ((current - 1) / total) * 100 if total > 0 else 0
 
                         # Broadcast task started event
@@ -595,7 +597,7 @@ class VerificationService:
                             job.job_id,
                             "task_started",
                             {
-                                "question_id": result.question_id,
+                                "question_id": question_id,
                                 "replicate": replicate,
                                 "current": current,
                                 "total": total,
@@ -603,11 +605,11 @@ class VerificationService:
                         )
                     else:
                         # Task is finished - update under lock for thread safety
-                        success = result.completed_without_errors
+                        success = result.metadata.completed_without_errors
 
                         with self._get_job_lock(job.job_id):
                             # task_finished now calculates duration internally from task_start_times
-                            job.task_finished(result.question_id, success, replicate=replicate)
+                            job.task_finished(question_id, success, replicate=replicate)
                             job.percentage = (current / total) * 100 if total > 0 else 0
 
                         # Broadcast task completed event
@@ -615,7 +617,7 @@ class VerificationService:
                             job.job_id,
                             "task_completed",
                             {
-                                "question_id": result.question_id,
+                                "question_id": question_id,
                                 "replicate": replicate,
                                 "current": current,
                                 "total": total,

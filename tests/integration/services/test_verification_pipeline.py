@@ -7,9 +7,14 @@ import time
 from unittest.mock import patch
 
 import pytest
-from karenina.schemas.verification import ModelIdentity
-from karenina.schemas.workflow import FinishedTemplate, ModelConfig, VerificationConfig, VerificationResult
-from karenina.schemas.workflow.verification.result_components import VerificationResultMetadata
+from karenina.schemas.config import ModelConfig
+from karenina.schemas.verification import (
+    FinishedTemplate,
+    ModelIdentity,
+    VerificationConfig,
+    VerificationResult,
+    VerificationResultMetadata,
+)
 
 
 def make_mock_result(question_id: str = "test_q1") -> VerificationResult:
