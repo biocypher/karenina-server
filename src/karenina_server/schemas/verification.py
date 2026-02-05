@@ -9,7 +9,7 @@ class FinishedTemplatePayload(BaseModel):
     """Payload for a finished answer template in verification request.
 
     This is the server-side representation of template data sent from the GUI.
-    Maps to karenina.schemas.workflow.FinishedTemplate.
+    Maps to karenina.schemas.verification.FinishedTemplate.
     """
 
     question_id: str = Field(description="Unique identifier for the question")

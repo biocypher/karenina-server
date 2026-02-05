@@ -11,14 +11,14 @@ from enum import Enum
 from typing import Any
 
 from karenina.schemas.domain import Rubric
-from karenina.schemas.verification import ModelIdentity
-from karenina.schemas.workflow import (
+from karenina.schemas.results import VerificationResultSet
+from karenina.schemas.verification import (
     FinishedTemplate,
+    ModelIdentity,
     VerificationConfig,
     VerificationJob,
     VerificationResult,
     VerificationResultMetadata,
-    VerificationResultSet,
     VerificationResultTemplate,
 )
 from karenina.utils.checkpoint import generate_template_id
