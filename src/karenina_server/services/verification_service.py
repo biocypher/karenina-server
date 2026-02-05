@@ -10,7 +10,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
 from typing import Any
 
-from karenina.schemas.domain import Rubric
+from karenina.schemas.entities import Rubric
 from karenina.schemas.results import VerificationResultSet
 from karenina.schemas.verification import (
     FinishedTemplate,

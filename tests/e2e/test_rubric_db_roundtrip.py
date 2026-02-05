@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from karenina.benchmark import Benchmark
-from karenina.schemas.domain import LLMRubricTrait, Question, RegexTrait, Rubric
+from karenina.schemas.entities import LLMRubricTrait, Question, RegexTrait, Rubric
 from karenina.storage import DBConfig, init_database, load_benchmark, save_benchmark
 
 
