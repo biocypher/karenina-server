@@ -392,7 +392,7 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             FileResponse with exported results.
         """
         try:
-            from karenina.benchmark.verification.results_exporter import (
+            from karenina.benchmark.verification.stages.helpers.results_exporter import (
                 create_export_filename,
                 export_verification_results_csv,
                 export_verification_results_json,

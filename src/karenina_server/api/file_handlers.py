@@ -20,7 +20,7 @@ except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 try:
-    from karenina.infrastructure.llm.manual_traces import ManualTraceError, get_manual_trace_count, load_manual_traces
+    from karenina.adapters.manual import ManualTraceError, get_manual_trace_count, load_manual_traces
 
     MANUAL_TRACES_AVAILABLE = True
 except ImportError:
