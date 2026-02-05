@@ -25,7 +25,7 @@ from ..utils.model_identifier import ModelIdentifier
 from ..utils.rubric_utils import build_rubric_from_dict
 
 if TYPE_CHECKING:
-    from karenina.schemas.workflow import VerificationResult
+    from karenina.schemas.verification import VerificationResult
 
     from ..services.verification_service import VerificationService
 
@@ -214,7 +214,7 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
         try:
             import json
 
-            from karenina.schemas.workflow import FinishedTemplate, VerificationConfig
+            from karenina.schemas.verification import FinishedTemplate, VerificationConfig
 
             # Log verification request details for debugging
             logger.debug(
@@ -462,7 +462,8 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             ComputeSummaryResponse with summary statistics.
         """
         try:
-            from karenina.schemas.workflow import VerificationResult, VerificationResultSet
+            from karenina.schemas.results import VerificationResultSet
+            from karenina.schemas.verification import VerificationResult
 
             # Use typed access instead of dict.get()
             results_dict = request.results
@@ -508,7 +509,8 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             CompareModelsResponse with model summaries, heatmap data, and token data.
         """
         try:
-            from karenina.schemas.workflow import VerificationResult, VerificationResultSet
+            from karenina.schemas.results import VerificationResultSet
+            from karenina.schemas.verification import VerificationResult
 
             # Use typed access instead of dict.get()
             results_dict = request.results

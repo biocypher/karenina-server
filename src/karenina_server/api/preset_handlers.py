@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from karenina.schemas.workflow.verification import VerificationConfig
+from karenina.schemas.verification import VerificationConfig
 from pydantic import BaseModel, Field, field_validator
 
 from ..services.preset_service import BenchmarkPresetService

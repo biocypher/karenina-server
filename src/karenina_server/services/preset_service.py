@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from karenina.schemas.workflow.verification import VerificationConfig
-from karenina.schemas.workflow.verification.config_presets import (
+from karenina.schemas.verification import VerificationConfig
+from karenina.schemas.verification.config_presets import (
     get_default_presets_dir,
     list_preset_files,
 )
@@ -189,7 +189,7 @@ class BenchmarkPresetService:
             ValueError: If validation fails
         """
         # Use core validation for basic checks (length limits)
-        from karenina.schemas.workflow.verification import VerificationConfig
+        from karenina.schemas.verification import VerificationConfig
 
         VerificationConfig.validate_preset_metadata(name, description)
 
@@ -263,7 +263,7 @@ class BenchmarkPresetService:
         now = datetime.now(UTC).isoformat()
 
         # Convert config to dict (Pydantic model_dump)
-        from karenina.schemas.workflow.verification import VerificationConfig
+        from karenina.schemas.verification import VerificationConfig
 
         config_dict = config.model_dump(mode="json")
 
@@ -334,7 +334,7 @@ class BenchmarkPresetService:
 
         # Update config if provided
         if config is not None:
-            from karenina.schemas.workflow.verification import VerificationConfig
+            from karenina.schemas.verification import VerificationConfig
 
             config_dict = config.model_dump(mode="json")
 
@@ -360,7 +360,7 @@ class BenchmarkPresetService:
         preset["updated_at"] = datetime.now(UTC).isoformat()
 
         # Determine new filename using core utility
-        from karenina.schemas.workflow.verification import VerificationConfig
+        from karenina.schemas.verification import VerificationConfig
 
         new_name = preset["name"]
         new_filename = VerificationConfig.sanitize_preset_name(new_name)
