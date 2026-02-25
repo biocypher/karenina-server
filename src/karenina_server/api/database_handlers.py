@@ -323,7 +323,9 @@ def register_database_routes(
                     "question": q_data["question"],
                     "raw_answer": q_data["raw_answer"],
                     "answer_template": q_data.get("answer_template"),
-                    "finished": q_data.get("finished", False),
+                    "finished": benchmark._base._question_registry[question_id].finished
+                    if question_id in benchmark._base._question_registry
+                    else False,
                     "keywords": q_data.get("keywords", []),  # Frontend CheckpointItem expects "keywords"
                     "last_modified": updated_at_map.get(question_id, datetime.now().isoformat()),
                 }
@@ -472,7 +474,7 @@ def register_database_routes(
                 question = Question(
                     question=q_data["question"],
                     raw_answer=q_data["raw_answer"],
-                    tags=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
+                    keywords=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 
@@ -577,7 +579,7 @@ def register_database_routes(
                 question = Question(
                     question=q_data["question"],
                     raw_answer=q_data["raw_answer"],
-                    tags=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
+                    keywords=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
                     few_shot_examples=q_data.get("few_shot_examples"),
                 )
 

@@ -52,12 +52,12 @@ from karenina.schemas import Question
         # Escape strings for Python
         question_text = repr(question_data.get("question", ""))
         raw_answer = repr(question_data.get("raw_answer", ""))
-        tags = question_data.get("tags", [])
+        keywords = question_data.get("keywords", [])
 
         content += f"""{question_var} = Question(
     question={question_text},
     raw_answer={raw_answer},
-    tags={tags}
+    keywords={keywords}
 )
 
 """
