@@ -53,11 +53,18 @@ from karenina.schemas import Question
         question_text = repr(question_data.get("question", ""))
         raw_answer = repr(question_data.get("raw_answer", ""))
         keywords = question_data.get("keywords", [])
+        answer_notes = question_data.get("answer_notes")
 
         content += f"""{question_var} = Question(
     question={question_text},
     raw_answer={raw_answer},
-    keywords={keywords}
+    keywords={keywords}"""
+
+        if answer_notes:
+            content += f""",
+    answer_notes={repr(answer_notes)}"""
+
+        content += """
 )
 
 """
@@ -165,6 +172,7 @@ def register_file_routes(
                 author_email_column=request.author_email_column,
                 author_affiliation_column=request.author_affiliation_column,
                 url_column=request.url_column,
+                answer_notes_column=request.answer_notes_column,
                 keywords_columns=request.keywords_columns,
             )
 

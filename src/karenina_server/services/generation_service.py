@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from karenina.benchmark.authoring.answers.generator import generate_answer_template
+from karenina.schemas import Question
 from karenina.utils.code import extract_and_combine_codeblocks
 
 from .progress_broadcaster import ProgressBroadcaster
@@ -324,10 +325,16 @@ class GenerationService:
         endpoint_api_key = task.get("endpoint_api_key")
 
         try:
-            # Generate template using the structured generator
-            raw_template_response = generate_answer_template(
+            # Create Question object from data
+            question_obj = Question(
                 question=question_data.get("question", ""),
                 raw_answer=question_data.get("raw_answer", ""),
+                answer_notes=question_data.get("answer_notes"),
+            )
+
+            # Generate template using the structured generator
+            raw_template_response = generate_answer_template(
+                question_obj=question_obj,
                 model=model_name,
                 model_provider=model_provider,
                 temperature=temperature,

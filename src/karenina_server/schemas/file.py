@@ -35,6 +35,7 @@ class ExtractQuestionsRequest(BaseModel):
     author_email_column: str | None = None
     author_affiliation_column: str | None = None
     url_column: str | None = None
+    answer_notes_column: str | None = None
     keywords_columns: list[dict[str, str]] | None = None
 
 
