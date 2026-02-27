@@ -26,7 +26,6 @@ class KeywordColumnConfig(BaseModel):
 class ExtractQuestionsRequest(BaseModel):
     """Request for extracting questions from a file."""
 
-    file_id: str
     question_column: str
     answer_column: str
     sheet_name: str | None = None
