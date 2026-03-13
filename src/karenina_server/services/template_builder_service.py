@@ -8,6 +8,9 @@ import logging
 import threading
 from typing import Any
 
+from karenina.benchmark.authoring.answers.generator import (
+    _smoke_test_generated_code,
+)
 from karenina.benchmark.verification.utils.class_discovery import find_answer_class
 from karenina.benchmark.verification.utils.template_converter import (
     detect_template_mode,
@@ -58,6 +61,9 @@ class TemplateBuilderService:
     def generate_code(self, spec_dict: dict[str, Any]) -> str:
         """Generate Python code from TemplateSpec JSON.
 
+        Runs the full generation pipeline: validate spec, generate code,
+        and smoke test (exec + verify with ground truth values).
+
         Args:
             spec_dict: TemplateSpec as a JSON-compatible dict.
 
@@ -65,12 +71,18 @@ class TemplateBuilderService:
             Python source code string.
 
         Raises:
-            ValueError: If the spec is invalid.
+            ValueError: If the spec is invalid or the generated code
+                fails the smoke test.
         """
         with self._lock:
             spec = TemplateSpec.model_validate(spec_dict)
-            result: str = spec_to_python(spec)
-            return result
+            code: str = spec_to_python(spec)
+
+            success, error_msg = _smoke_test_generated_code(code)
+            if not success:
+                raise ValueError(f"Generated code failed smoke test: {error_msg}")
+
+            return code
 
     def validate_template(self, code: str) -> dict[str, Any]:
         """Run Quick Check validation on template code.
