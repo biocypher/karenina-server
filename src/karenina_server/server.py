@@ -542,6 +542,10 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(config_router, prefix="/api")  # V2 endpoints at /api/v2/config/...
     app.include_router(preset_router, prefix="/api")
 
+    from .api.template_builder_handlers import router as template_builder_router
+
+    app.include_router(template_builder_router, prefix="/api")
+
     # Note: Event loop setup and shutdown are handled by lifespan context manager (conc-001)
 
     # Serve static files from the webapp dist directory
