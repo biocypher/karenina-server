@@ -153,7 +153,7 @@ class TemplateBuilderService:
         Returns:
             List of primitive info dicts.
         """
-        from karenina.schemas.entities.primitives import _PRIMITIVE_REGISTRY
+        from karenina.schemas.primitives.registry import _PRIMITIVE_REGISTRY
 
         primitives = []
         # Type-to-primitive applicability mapping
