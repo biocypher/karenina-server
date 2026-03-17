@@ -26,7 +26,6 @@ class KeywordColumnConfig(BaseModel):
 class ExtractQuestionsRequest(BaseModel):
     """Request for extracting questions from a file."""
 
-    file_id: str
     question_column: str
     answer_column: str
     sheet_name: str | None = None
@@ -35,11 +34,8 @@ class ExtractQuestionsRequest(BaseModel):
     author_email_column: str | None = None
     author_affiliation_column: str | None = None
     url_column: str | None = None
-    # New format: multiple keyword columns with individual separators
+    answer_notes_column: str | None = None
     keywords_columns: list[dict[str, str]] | None = None
-    # Deprecated: kept for backward compatibility
-    keywords_column: str | None = None
-    keywords_separator: str = ","
 
 
 class ExtractQuestionsResponse(BaseModel):

@@ -39,7 +39,7 @@ except ImportError:
 
 # Import LLM functionality from the karenina package
 try:
-    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.adapters.factory  # noqa: F401 - Test if adapter factory is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -47,7 +47,7 @@ except ImportError:
 
 # Import Question Extractor functionality
 try:
-    import karenina.domain.questions.extractor  # noqa: F401 - Test if extractor module is available
+    import karenina.benchmark.authoring.questions.extractor  # noqa: F401 - Test if extractor module is available
 
     EXTRACTOR_AVAILABLE = True
 except ImportError:
@@ -541,6 +541,10 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(config_router, prefix="/api/config")
     app.include_router(config_router, prefix="/api")  # V2 endpoints at /api/v2/config/...
     app.include_router(preset_router, prefix="/api")
+
+    from .api.template_builder_handlers import router as template_builder_router
+
+    app.include_router(template_builder_router, prefix="/api")
 
     # Note: Event loop setup and shutdown are handled by lifespan context manager (conc-001)
 

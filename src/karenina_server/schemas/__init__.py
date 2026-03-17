@@ -62,6 +62,18 @@ from karenina_server.schemas.template import (
     TemplateGenerationResponse,
     TemplateGenerationStatusResponse,
 )
+from karenina_server.schemas.template_builder import (
+    PrimitiveInfo,
+    PrimitiveListResponse,
+    TemplateGenerateRequest,
+    TemplateGenerateResponse,
+    TemplateParseRequest,
+    TemplateParseResponse,
+    TemplateTestRequest,
+    TemplateTestResponse,
+    TemplateValidateRequest,
+    TemplateValidateResponse,
+)
 from karenina_server.schemas.verification import (
     CompareModelsRequest,
     CompareModelsResponse,
@@ -115,6 +127,17 @@ __all__ = [
     "LoadVerificationResultsRequest",
     "VerificationResultSummary",
     "LoadVerificationResultsResponse",
+    # Template builder schemas
+    "PrimitiveInfo",
+    "PrimitiveListResponse",
+    "TemplateGenerateRequest",
+    "TemplateGenerateResponse",
+    "TemplateParseRequest",
+    "TemplateParseResponse",
+    "TemplateTestRequest",
+    "TemplateTestResponse",
+    "TemplateValidateRequest",
+    "TemplateValidateResponse",
     # Verification schemas
     "FinishedTemplatePayload",
     "StartVerificationRequest",

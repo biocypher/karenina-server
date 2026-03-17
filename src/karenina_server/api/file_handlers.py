@@ -20,7 +20,7 @@ except ImportError:
     EXTRACTOR_AVAILABLE = False
 
 try:
-    from karenina.infrastructure.llm.manual_traces import ManualTraceError, get_manual_trace_count, load_manual_traces
+    from karenina.adapters.manual import ManualTraceError, get_manual_trace_count, load_manual_traces
 
     MANUAL_TRACES_AVAILABLE = True
 except ImportError:
@@ -52,12 +52,19 @@ from karenina.schemas import Question
         # Escape strings for Python
         question_text = repr(question_data.get("question", ""))
         raw_answer = repr(question_data.get("raw_answer", ""))
-        tags = question_data.get("tags", [])
+        keywords = question_data.get("keywords", [])
+        answer_notes = question_data.get("answer_notes")
 
         content += f"""{question_var} = Question(
     question={question_text},
     raw_answer={raw_answer},
-    tags={tags}
+    keywords={keywords}"""
+
+        if answer_notes:
+            content += f""",
+    answer_notes={repr(answer_notes)}"""
+
+        content += """
 )
 
 """
@@ -152,15 +159,6 @@ def register_file_routes(
         try:
             file_info = uploaded_files[file_id]
 
-            # Handle backward compatibility: convert old format to new format
-            keywords_columns = None
-            if request.keywords_columns:
-                # New format provided
-                keywords_columns = request.keywords_columns
-            elif request.keywords_column:
-                # Old format provided, convert to new format
-                keywords_columns = [{"column": request.keywords_column, "separator": request.keywords_separator}]
-
             # Extract questions and return as JSON
             questions_data = extract_and_generate_questions(
                 file_path=file_info["file_path"],
@@ -174,7 +172,8 @@ def register_file_routes(
                 author_email_column=request.author_email_column,
                 author_affiliation_column=request.author_affiliation_column,
                 url_column=request.url_column,
-                keywords_columns=keywords_columns,
+                answer_notes_column=request.answer_notes_column,
+                keywords_columns=request.keywords_columns,
             )
 
             return ExtractQuestionsResponse(
@@ -288,98 +287,3 @@ def register_file_routes(
         trace_count = get_manual_trace_count()
 
         return {"loaded": trace_count > 0, "trace_count": trace_count}
-
-    # ============================================================================
-    # V2 RESTful Routes - File Endpoints
-    # ============================================================================
-    # These routes provide RESTful noun-based alternatives to the v1 verb-based routes.
-    # V1 routes remain for backward compatibility.
-    #
-    # V1 Route                          -> V2 RESTful Route
-    # -----------------------------------------------------------------
-    # POST /api/upload-file             -> POST /api/v2/files
-    # POST /api/preview-file            -> GET /api/v2/files/{id}/preview
-    # POST /api/extract-questions       -> POST /api/v2/files/{id}/questions
-    # POST /api/export-questions-python -> POST /api/v2/questions/export
-    # DELETE /api/uploaded-files/{id}   -> DELETE /api/v2/files/{id}
-    # POST /api/upload-manual-traces    -> POST /api/v2/traces
-    # GET /api/manual-traces/status     -> GET /api/v2/traces/status
-    # ============================================================================
-
-    @app.post("/api/v2/files")  # type: ignore[misc]
-    async def upload_file_v2(file: UploadFile = File(...)) -> dict[str, Any]:
-        """V2: Upload a file for question extraction.
-
-        RESTful alternative to POST /api/upload-file.
-        """
-        result: dict[str, Any] = await upload_file_endpoint(file=file)
-        return result
-
-    @app.get("/api/v2/files/{file_id}/preview", response_model=FilePreviewResponse)  # type: ignore[misc]
-    async def preview_file_v2(file_id: str, sheet_name: str | None = None) -> FilePreviewResponse:
-        """V2: Get a preview of an uploaded file.
-
-        RESTful alternative to POST /api/preview-file.
-        Uses GET since this is a read operation, with query params instead of form data.
-        """
-        if not EXTRACTOR_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Question extractor not available")
-
-        if file_id not in uploaded_files:
-            raise HTTPException(status_code=404, detail="File not found")
-
-        try:
-            file_info = uploaded_files[file_id]
-            preview_data = get_file_preview(file_info["file_path"], sheet_name)
-            return FilePreviewResponse(**preview_data)
-
-        except Exception as e:
-            return FilePreviewResponse(success=False, error=f"Error previewing file: {e!s}")
-
-    @app.post("/api/v2/files/{file_id}/questions", response_model=ExtractQuestionsResponse)  # type: ignore[misc]
-    async def extract_questions_v2(file_id: str, request: ExtractQuestionsRequest) -> ExtractQuestionsResponse:
-        """V2: Extract questions from an uploaded file.
-
-        RESTful alternative to POST /api/extract-questions.
-        File ID is in URL path, extraction config in request body.
-        """
-        # Override the file_id from the request with the one from the URL path
-        request.file_id = file_id
-        return await extract_questions_endpoint(request=request)
-
-    @app.post("/api/v2/questions/export")  # type: ignore[misc]
-    async def export_questions_python_v2(request: dict[str, Any]) -> FileResponse:
-        """V2: Export questions as a Python file.
-
-        RESTful alternative to POST /api/export-questions-python.
-        Questions are a top-level resource, export is an action on them.
-        """
-        result: FileResponse = await export_questions_python_endpoint(request=request)
-        return result
-
-    @app.delete("/api/v2/files/{file_id}")  # type: ignore[misc]
-    async def delete_file_v2(file_id: str) -> dict[str, str]:
-        """V2: Delete an uploaded file.
-
-        RESTful alternative to DELETE /api/uploaded-files/{file_id}.
-        """
-        result: dict[str, str] = await delete_uploaded_file_endpoint(file_id=file_id)
-        return result
-
-    @app.post("/api/v2/traces")  # type: ignore[misc]
-    async def upload_traces_v2(file: UploadFile = File(...)) -> dict[str, Any]:
-        """V2: Upload manual traces JSON file.
-
-        RESTful alternative to POST /api/upload-manual-traces.
-        """
-        result: dict[str, Any] = await upload_manual_traces_endpoint(file=file)
-        return result
-
-    @app.get("/api/v2/traces/status")  # type: ignore[misc]
-    async def get_traces_status_v2() -> dict[str, Any]:
-        """V2: Get the status of loaded manual traces.
-
-        RESTful alternative to GET /api/manual-traces/status.
-        """
-        result: dict[str, Any] = await get_manual_traces_status()
-        return result

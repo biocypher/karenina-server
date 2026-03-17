@@ -8,7 +8,7 @@ from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 try:
-    import karenina.infrastructure.llm  # noqa: F401 - Test if LLM module is available
+    import karenina.adapters.factory  # noqa: F401 - Test if adapter factory is available
 
     LLM_AVAILABLE = True
 except ImportError:
@@ -194,35 +194,3 @@ def register_generation_routes(
                     cleanup_done.set()
                 except Exception as e:
                     logger.warning("Error during WebSocket cleanup for job_id=%s: %s", job_id, e)
-
-    # =========================================================================
-    # V2 Routes - RESTful, noun-based naming
-    # =========================================================================
-
-    @app.post("/api/v2/templates/generation", response_model=TemplateGenerationResponse)  # type: ignore[misc]
-    async def v2_start_generation_endpoint(request: TemplateGenerationRequest) -> TemplateGenerationResponse:
-        """V2: Start answer template generation for a set of questions.
-
-        RESTful endpoint for starting template generation.
-        Delegates to the v1 handler for consistent behavior.
-        """
-        return await generate_answer_templates_endpoint(request)
-
-    @app.get("/api/v2/templates/generation/{generation_id}/progress")  # type: ignore[misc]
-    async def v2_get_generation_progress(generation_id: str) -> TemplateGenerationStatusResponse:
-        """V2: Get the progress of a template generation job.
-
-        RESTful endpoint using noun-based naming.
-        Delegates to the v1 handler for consistent behavior.
-        """
-        return await get_generation_progress(generation_id)
-
-    @app.delete("/api/v2/templates/generation/{generation_id}")  # type: ignore[misc]
-    async def v2_cancel_generation_endpoint(generation_id: str) -> dict[str, str]:
-        """V2: Cancel a template generation job.
-
-        RESTful endpoint using DELETE method for resource cancellation.
-        Delegates to the v1 handler for consistent behavior.
-        """
-        result: dict[str, str] = await cancel_generation_endpoint(generation_id)
-        return result

@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from karenina.schemas.workflow.verification import VerificationConfig
+from karenina.schemas.verification import VerificationConfig
 
 from karenina_server.services.preset_service import BenchmarkPresetService
 
