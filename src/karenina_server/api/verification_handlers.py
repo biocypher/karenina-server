@@ -220,7 +220,7 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
             logger.debug(
                 "Received verification request",
                 extra={
-                    "rubric_enabled": request.config.get("rubric_enabled", False),
+                    "rubric_enabled": request.config.get("evaluation_mode") in ("template_and_rubric", "rubric_only"),
                     "template_count": len(request.finished_templates),
                 },
             )
@@ -270,7 +270,7 @@ def register_verification_routes(app: FastAPI, verification_service: Verificatio
                 )
 
             # Validate rubric availability if rubric evaluation is enabled
-            if getattr(config, "rubric_enabled", False):
+            if config.rubric_enabled:
                 from ..services.rubric_service import rubric_service
 
                 # Check for any available rubrics (global OR question-specific)

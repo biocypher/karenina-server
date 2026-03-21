@@ -331,7 +331,7 @@ class VerificationService:
         self._maybe_cleanup()
 
         # Validate rubric availability if rubric evaluation is enabled
-        if getattr(config, "rubric_enabled", False):
+        if config.rubric_enabled:
             from ..services.rubric_service import rubric_service
 
             if not rubric_service.has_any_rubric(finished_templates):
@@ -568,7 +568,7 @@ class VerificationService:
                 job.start_time = time.time()
 
             # Load global rubric if needed
-            global_rubric = self._load_current_rubric() if getattr(job.config, "rubric_enabled", False) else None
+            global_rubric = self._load_current_rubric() if job.config.rubric_enabled else None
 
             # Emit job started
             self._emit_progress_event(job.job_id, "job_started")

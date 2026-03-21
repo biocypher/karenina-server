@@ -113,7 +113,7 @@ def _generate_preset_summary(config_dict: dict[str, Any]) -> dict[str, Any]:
     summary["total_model_count"] = summary["answering_model_count"] + summary["parsing_model_count"]
 
     # Collect enabled features
-    if config_dict.get("rubric_enabled"):
+    if config_dict.get("evaluation_mode") in ("template_and_rubric", "rubric_only"):
         summary["enabled_features"].append("rubric")
     if config_dict.get("abstention_enabled"):
         summary["enabled_features"].append("abstention")

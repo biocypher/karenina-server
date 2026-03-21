@@ -71,7 +71,6 @@ def sample_preset_data():
                 }
             ],
             "replicate_count": 1,
-            "rubric_enabled": True,
             "evaluation_mode": "template_and_rubric",
             "abstention_enabled": False,
             "deep_judgment_enabled": False,
@@ -109,7 +108,6 @@ def complex_preset_data():
                 }
             ],
             "replicate_count": 3,
-            "rubric_enabled": True,
             "rubric_trait_names": ["accuracy", "clarity"],
             "evaluation_mode": "rubric_only",
             "abstention_enabled": True,
