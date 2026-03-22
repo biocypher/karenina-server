@@ -7,10 +7,10 @@ to karenina Rubric objects.
 from typing import Any
 
 from karenina.schemas import (
-    CallableTrait,
+    CallableRubricTrait,
     LLMRubricTrait,
     MetricRubricTrait,
-    RegexTrait,
+    RegexRubricTrait,
     Rubric,
 )
 
@@ -55,16 +55,16 @@ def parse_llm_trait(trait_data: dict[str, Any]) -> LLMRubricTrait:
     )
 
 
-def parse_regex_trait(trait_data: dict[str, Any]) -> RegexTrait:
-    """Parse a dict into a RegexTrait.
+def parse_regex_trait(trait_data: dict[str, Any]) -> RegexRubricTrait:
+    """Parse a dict into a RegexRubricTrait.
 
     Args:
         trait_data: Dict with trait properties from frontend.
 
     Returns:
-        RegexTrait instance.
+        RegexRubricTrait instance.
     """
-    return RegexTrait(
+    return RegexRubricTrait(
         name=trait_data["name"],
         description=trait_data.get("description"),
         pattern=trait_data.get("pattern", ""),
@@ -73,16 +73,16 @@ def parse_regex_trait(trait_data: dict[str, Any]) -> RegexTrait:
     )
 
 
-def parse_callable_trait(trait_data: dict[str, Any]) -> CallableTrait:
-    """Parse a dict into a CallableTrait.
+def parse_callable_trait(trait_data: dict[str, Any]) -> CallableRubricTrait:
+    """Parse a dict into a CallableRubricTrait.
 
     Args:
         trait_data: Dict with trait properties from frontend.
 
     Returns:
-        CallableTrait instance.
+        CallableRubricTrait instance.
     """
-    return CallableTrait(
+    return CallableRubricTrait(
         name=trait_data["name"],
         description=trait_data.get("description"),
         callable_code=trait_data.get("callable_code", b""),
