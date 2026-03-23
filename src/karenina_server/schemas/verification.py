@@ -20,10 +20,14 @@ class FinishedTemplatePayload(BaseModel):
     last_modified: str = Field(description="ISO timestamp of last modification")
     finished: bool = Field(default=True, description="Whether the template is finished")
     question_rubric: dict[str, Any] | None = Field(default=None, description="Question-specific rubric definition")
+    question_dynamic_rubric: dict[str, Any] | None = Field(
+        default=None, description="Question-specific dynamic rubric as dict"
+    )
     keywords: list[str] | None = Field(default=None, description="Keywords for categorization")
     few_shot_examples: list[dict[str, str]] | None = Field(
         default=None, description="Few-shot examples for this question"
     )
+    workspace_path: str | None = Field(default=None, description="Workspace path for agentic parsing")
 
 
 class StartVerificationRequest(BaseModel):
