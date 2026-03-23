@@ -12,16 +12,17 @@ from karenina.benchmark.authoring.answers.generator import (
     _smoke_test_generated_code,
 )
 from karenina.benchmark.verification.utils.class_discovery import find_answer_class
-from karenina.benchmark.verification.utils.template_converter import (
-    detect_template_mode,
-    python_to_spec,
-    spec_to_python,
-)
 from karenina.benchmark.verification.utils.template_validation import (
     _build_exec_namespace,
     validate_answer_template,
 )
 from karenina.schemas.entities.template_spec import TemplateSpec
+
+from karenina_server.services.template_converter import (
+    detect_template_mode,
+    python_to_spec,
+    spec_to_python,
+)
 
 logger = logging.getLogger(__name__)
 
