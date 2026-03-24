@@ -117,11 +117,11 @@ def complex_preset_data():
             "deep_judgment_search_enabled": True,
             "deep_judgment_search_tool": "tavily",
             "few_shot_config": {
-                "enabled": True,
-                "global_mode": "k-shot",
-                "global_k": 3,
+                "source": "both",
+                "pool_mode": "k-shot",
+                "pool_k": 3,
                 "question_configs": {},
-                "global_external_examples": [],
+                "global_examples": [],
             },
         },
     }

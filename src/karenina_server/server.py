@@ -538,7 +538,6 @@ def create_fastapi_app(webapp_dir: Path) -> FastAPI:
     app.include_router(auth_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(rubric_router, prefix="/api")
-    app.include_router(config_router, prefix="/api/config")
     app.include_router(config_router, prefix="/api")  # V2 endpoints at /api/v2/config/...
     app.include_router(preset_router, prefix="/api")
 
