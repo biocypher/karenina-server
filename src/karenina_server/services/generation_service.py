@@ -5,12 +5,11 @@ import os
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from karenina.benchmark.authoring.answers.generator import generate_answer_template
-from karenina.schemas import Question
-from karenina.utils.code import extract_and_combine_codeblocks
+from karenina.benchmark import Benchmark
+from karenina.benchmark.benchmark_helpers import TemplateProgressEvent, generate_templates
 
 from .progress_broadcaster import ProgressBroadcaster
 
@@ -249,6 +248,8 @@ class GenerationService:
         if job and job.status in ["pending", "running"]:
             job.cancelled = True
             job.status = "cancelled"
+            if hasattr(job, "_cancel_event") and job._cancel_event is not None:
+                job._cancel_event.set()
             return True
         return False
 
@@ -305,192 +306,12 @@ class GenerationService:
         for job_id in jobs_to_remove:
             del self.jobs[job_id]
 
-    def _generate_single_template(self, task: dict[str, Any]) -> dict[str, Any]:
-        """
-        Generate a single template from a task dictionary.
-
-        Args:
-            task: Dictionary containing all parameters needed for generation
-
-        Returns:
-            Dictionary containing generation result
-        """
-        question_id = task["question_id"]
-        question_data = task["question_data"]
-        model_name = task["model_name"]
-        model_provider = task["model_provider"]
-        temperature = task["temperature"]
-        interface = task["interface"]
-        endpoint_base_url = task.get("endpoint_base_url")
-        endpoint_api_key = task.get("endpoint_api_key")
-
-        try:
-            # Create Question object from data
-            question_obj = Question(
-                question=question_data.get("question", ""),
-                raw_answer=question_data.get("raw_answer", ""),
-                answer_notes=question_data.get("answer_notes"),
-            )
-
-            # Generate template using the structured generator
-            raw_template_response = generate_answer_template(
-                question_obj=question_obj,
-                model=model_name,
-                model_provider=model_provider,
-                temperature=temperature,
-                interface=interface,
-                endpoint_base_url=endpoint_base_url,
-                endpoint_api_key=endpoint_api_key,
-            )
-
-            # Extract only the Python code blocks from the LLM response
-            template_code = extract_and_combine_codeblocks(raw_template_response)
-
-            # Check if we got any code blocks
-            if not template_code.strip():
-                # If no code blocks found, use the raw response as fallback but mark as potential issue
-                template_code = raw_template_response
-                template_result = {
-                    "success": True,
-                    "template_code": template_code,
-                    "error": "Warning: No code blocks found in response",
-                    "raw_response": raw_template_response,
-                    "question_id": question_id,
-                }
-            else:
-                template_result = {
-                    "success": True,
-                    "template_code": template_code,
-                    "error": None,
-                    "raw_response": raw_template_response,
-                    "question_id": question_id,
-                }
-
-            return template_result
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "template_code": "",
-                "question_id": question_id,
-                "raw_response": "",
-            }
-
-    def _execute_sequential(self, tasks: list[dict[str, Any]], job: TemplateGenerationJob) -> list[dict[str, Any]]:
-        """Execute tasks sequentially with progress tracking.
-
-        Args:
-            tasks: List of task dictionaries to process
-            job: The job object for tracking progress
-
-        Returns:
-            List of results in the same order as input tasks
-        """
-        results = []
-        for task in tasks:
-            if job.cancelled:
-                job.status = "cancelled"
-                self._emit_progress_event(job.job_id, "job_cancelled")
-                break
-
-            question_id = task["question_id"]
-            question_data = task["question_data"]
-            job.current_question = question_data.get("question", "Unknown question")[:50] + "..."
-
-            # Track task start
-            job.task_started(question_id)
-            self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
-
-            # Generate template
-            result = self._generate_single_template(task)
-            results.append(result)
-
-            # Track task completion
-            success = result.get("success", False)
-            job.task_finished(question_id, success)
-            self._emit_progress_event(
-                job.job_id,
-                "task_completed",
-                {"question_id": question_id, "success": success},
-            )
-
-        return results
-
-    def _execute_parallel(self, tasks: list[dict[str, Any]], job: TemplateGenerationJob) -> list[dict[str, Any]]:
-        """Execute tasks in parallel using ThreadPoolExecutor.
-
-        Args:
-            tasks: List of task dictionaries to process
-            job: The job object for tracking progress
-
-        Returns:
-            List of results in the same order as input tasks
-        """
-        # Initialize results list to maintain order
-        results: list[dict[str, Any] | None] = [None] * len(tasks)
-
-        with ThreadPoolExecutor(max_workers=job.max_workers) as executor:
-            # Submit all tasks and track with original index
-            future_to_index = {}
-            for idx, task in enumerate(tasks):
-                question_id = task["question_id"]
-
-                # Track task start
-                job.task_started(question_id)
-                self._emit_progress_event(job.job_id, "task_started", {"question_id": question_id})
-
-                # Submit task
-                future = executor.submit(self._generate_single_template, task)
-                future_to_index[future] = idx
-
-            # Collect results as they complete
-            for future in as_completed(future_to_index):
-                if job.cancelled:
-                    job.status = "cancelled"
-                    self._emit_progress_event(job.job_id, "job_cancelled")
-                    # Cancel remaining futures
-                    for f in future_to_index:
-                        f.cancel()
-                    break
-
-                idx = future_to_index[future]
-                task = tasks[idx]
-                question_id = task["question_id"]
-
-                try:
-                    result = future.result()
-                    results[idx] = result
-                    success = result.get("success", False)
-
-                    # Track task completion
-                    job.task_finished(question_id, success)
-                    self._emit_progress_event(
-                        job.job_id,
-                        "task_completed",
-                        {"question_id": question_id, "success": success},
-                    )
-
-                except Exception as e:
-                    # Store exception as result
-                    results[idx] = {
-                        "success": False,
-                        "error": str(e),
-                        "template_code": "",
-                        "question_id": question_id,
-                        "raw_response": "",
-                    }
-                    job.task_finished(question_id, False)
-                    self._emit_progress_event(
-                        job.job_id,
-                        "task_completed",
-                        {"question_id": question_id, "success": False},
-                    )
-
-        return [r for r in results if r is not None]
-
     def _generate_templates(self, job: TemplateGenerationJob) -> None:
-        """Generate templates for all questions in the job."""
+        """Generate templates for all questions in the job.
+
+        Delegates to the core library's generate_templates() for execution,
+        using a progress callback to update job tracking fields.
+        """
         try:
             job.status = "running"
             job.start_time = time.time()
@@ -523,38 +344,60 @@ class GenerationService:
                 endpoint_base_url = config_dict.get("endpoint_base_url", None)
                 endpoint_api_key = config_dict.get("endpoint_api_key", None)
 
-            # Build list of all generation tasks
-            generation_tasks = []
+            # Build a temporary Benchmark populated with the job's questions
+            benchmark = Benchmark(name=f"generation-job-{job.job_id}")
             for question_id, question_data in job.questions_data.items():
-                task = {
-                    "question_id": question_id,
-                    "question_data": question_data,
-                    "model_name": model_name,
-                    "model_provider": model_provider,
-                    "temperature": temperature,
-                    "interface": interface,
-                    "endpoint_base_url": endpoint_base_url,
-                    "endpoint_api_key": endpoint_api_key,
-                }
-                generation_tasks.append(task)
+                benchmark.add_question(
+                    question=question_data.get("question", ""),
+                    raw_answer=question_data.get("raw_answer", ""),
+                    answer_notes=question_data.get("answer_notes"),
+                    question_id=question_id,
+                )
 
-            # Execute tasks based on async setting
-            if job.async_enabled:
-                # Parallel execution using ThreadPoolExecutor
-                results = self._execute_parallel(generation_tasks, job)
-            else:
-                # Sequential execution (original behavior)
-                results = self._execute_sequential(generation_tasks, job)
+            # Create a cancellation event and store it on the job
+            cancel_event = threading.Event()
+            job._cancel_event = cancel_event  # type: ignore[attr-defined]
+            if job.cancelled:
+                cancel_event.set()
+
+            # Progress callback bridges core library events to job tracking
+            def on_progress(event: TemplateProgressEvent) -> None:
+                job.processed_count = event.processed_count
+                job.successful_count = event.successful_count
+                job.failed_count = event.failed_count
+                job.percentage = event.percentage
+                job.in_progress_questions = list(event.in_progress_questions)
+                job.last_task_duration = event.task_duration
+                if event.question_id:
+                    job.current_question = event.question_id
+                self._emit_progress_event(
+                    job.job_id,
+                    event.event,
+                    {
+                        "question_id": event.question_id,
+                        "success": event.event == "task_completed",
+                        "error": event.error,
+                    },
+                )
+
+            # Delegate to core library
+            results = generate_templates(
+                benchmark=benchmark,
+                question_ids=list(job.questions_data.keys()),
+                model=model_name,
+                model_provider=model_provider,
+                temperature=temperature,
+                interface=interface,
+                force_regenerate=job.force_regenerate,
+                progress_callback=on_progress,
+                endpoint_base_url=endpoint_base_url,
+                endpoint_api_key=endpoint_api_key,
+                max_workers=job.max_workers if job.async_enabled else 1,
+                cancel_event=cancel_event,
+            )
 
             # Store results
-            for result in results:
-                if isinstance(result, Exception):
-                    # Handle exceptions
-                    question_id = "unknown"
-                    job.results[question_id] = {"success": False, "error": str(result), "template_code": ""}
-                else:
-                    question_id = result["question_id"]
-                    job.results[question_id] = result
+            job.results = results
 
             # Job completed successfully
             job.status = "completed"
@@ -562,7 +405,6 @@ class GenerationService:
             job.percentage = 100.0
 
             # Create final result
-            # Calculate average generation time from total duration
             total_time = (job.end_time or 0) - (job.start_time or 0)
             average_time = total_time / job.total_questions if job.total_questions > 0 else 0
 
