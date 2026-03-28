@@ -158,9 +158,13 @@ class TemplateBuilderService:
 
         primitives = []
         # Type-to-primitive applicability mapping
+        # Maps each primitive to the field types it can verify.
+        # Trace primitives apply to all types (they check raw LLM output,
+        # not judge-extracted values); the GUI filters them separately.
+        all_types = ["bool", "str", "int", "float", "list_str", "literal", "date"]
         type_map: dict[str, list[str]] = {
             "BooleanMatch": ["bool"],
-            "ExactMatch": ["str", "int", "float"],
+            "ExactMatch": ["str"],
             "ContainsAny": ["str"],
             "ContainsAll": ["str"],
             "RegexMatch": ["str"],
@@ -170,13 +174,13 @@ class TemplateBuilderService:
             "NumericRange": ["int", "float"],
             "SetContainment": ["list_str"],
             "OrderedMatch": ["list_str"],
-            "LiteralMatch": ["literal", "str"],
-            "DateMatch": ["date", "str"],
-            "DateTolerance": ["date", "str"],
-            "DateRange": ["date", "str"],
-            "TraceRegex": ["bool"],
-            "TraceContains": ["bool"],
-            "TraceLength": ["bool"],
+            "LiteralMatch": ["literal"],
+            "DateMatch": ["date"],
+            "DateTolerance": ["date"],
+            "DateRange": ["date"],
+            "TraceRegex": all_types,
+            "TraceContains": all_types,
+            "TraceLength": all_types,
         }
 
         for name, cls in _PRIMITIVE_REGISTRY.items():
