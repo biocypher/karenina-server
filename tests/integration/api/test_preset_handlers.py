@@ -73,7 +73,7 @@ def sample_preset_data():
             "replicate_count": 1,
             "evaluation_mode": "template_and_rubric",
             "abstention_enabled": False,
-            "deep_judgment_enabled": False,
+            "deep_judgment_mode": "disabled",
         },
     }
 
@@ -111,17 +111,17 @@ def complex_preset_data():
             "rubric_trait_names": ["accuracy", "clarity"],
             "evaluation_mode": "rubric_only",
             "abstention_enabled": True,
-            "deep_judgment_enabled": True,
+            "deep_judgment_mode": "full",
             "deep_judgment_max_excerpts_per_attribute": 10,
             "deep_judgment_fuzzy_match_threshold": 0.85,
             "deep_judgment_search_enabled": True,
             "deep_judgment_search_tool": "tavily",
             "few_shot_config": {
-                "enabled": True,
-                "global_mode": "k-shot",
-                "global_k": 3,
+                "source": "both",
+                "pool_mode": "k-shot",
+                "pool_k": 3,
                 "question_configs": {},
-                "global_external_examples": [],
+                "global_examples": [],
             },
         },
     }

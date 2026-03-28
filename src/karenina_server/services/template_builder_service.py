@@ -12,16 +12,17 @@ from karenina.benchmark.authoring.answers.generator import (
     _smoke_test_generated_code,
 )
 from karenina.benchmark.verification.utils.class_discovery import find_answer_class
-from karenina.benchmark.verification.utils.template_converter import (
-    detect_template_mode,
-    python_to_spec,
-    spec_to_python,
-)
 from karenina.benchmark.verification.utils.template_validation import (
     _build_exec_namespace,
     validate_answer_template,
 )
 from karenina.schemas.entities.template_spec import TemplateSpec
+
+from karenina_server.services.template_converter import (
+    detect_template_mode,
+    python_to_spec,
+    spec_to_python,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -157,9 +158,13 @@ class TemplateBuilderService:
 
         primitives = []
         # Type-to-primitive applicability mapping
+        # Maps each primitive to the field types it can verify.
+        # Trace primitives apply to all types (they check raw LLM output,
+        # not judge-extracted values); the GUI filters them separately.
+        all_types = ["bool", "str", "int", "float", "list_str", "literal", "date"]
         type_map: dict[str, list[str]] = {
             "BooleanMatch": ["bool"],
-            "ExactMatch": ["str", "int", "float"],
+            "ExactMatch": ["str"],
             "ContainsAny": ["str"],
             "ContainsAll": ["str"],
             "RegexMatch": ["str"],
@@ -169,13 +174,13 @@ class TemplateBuilderService:
             "NumericRange": ["int", "float"],
             "SetContainment": ["list_str"],
             "OrderedMatch": ["list_str"],
-            "LiteralMatch": ["literal", "str"],
-            "DateMatch": ["date", "str"],
-            "DateTolerance": ["date", "str"],
-            "DateRange": ["date", "str"],
-            "TraceRegex": ["bool"],
-            "TraceContains": ["bool"],
-            "TraceLength": ["bool"],
+            "LiteralMatch": ["literal"],
+            "DateMatch": ["date"],
+            "DateTolerance": ["date"],
+            "DateRange": ["date"],
+            "TraceRegex": all_types,
+            "TraceContains": all_types,
+            "TraceLength": all_types,
         }
 
         for name, cls in _PRIMITIVE_REGISTRY.items():

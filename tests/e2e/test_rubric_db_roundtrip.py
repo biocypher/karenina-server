@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from karenina.benchmark import Benchmark
-from karenina.schemas.entities import LLMRubricTrait, Question, RegexTrait, Rubric
+from karenina.schemas.entities import LLMRubricTrait, Question, RegexRubricTrait, Rubric
 from karenina.storage import DBConfig, init_database, load_benchmark, save_benchmark
 
 
@@ -62,7 +62,7 @@ def sample_global_rubric():
             ),
         ],
         regex_traits=[
-            RegexTrait(
+            RegexRubricTrait(
                 name="no_profanity",
                 description="Response should not contain profanity",
                 pattern=r"\b(damn|hell)\b",

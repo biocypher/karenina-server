@@ -67,11 +67,18 @@ class TestRubricCRUD:
         assert "must have at least one trait" in response.json()["detail"]
 
     def test_create_rubric_duplicate_trait_names(self, client, sample_rubric_data):
-        """Test rubric creation with duplicate trait names."""
+        """Test rubric creation with duplicate trait names.
+
+        The core Rubric model validates uniqueness at the Pydantic level,
+        so duplicate names are rejected during request parsing (422)
+        before the handler's own check (400) can run.
+        """
         sample_rubric_data["llm_traits"][1]["name"] = sample_rubric_data["llm_traits"][0]["name"]
         response = client.put("/api/v2/rubrics/current", json=sample_rubric_data)
-        assert response.status_code == 400
-        assert "must be unique" in response.json()["detail"]
+        assert response.status_code == 422
+        # Pydantic validation error contains the uniqueness message from Rubric.validate_trait_names
+        response_text = str(response.json())
+        assert "unique" in response_text.lower() or "Duplicate" in response_text
 
     def test_get_rubric_none_exists(self, client):
         """Test getting rubric when none exists."""

@@ -7,10 +7,11 @@ to karenina Rubric objects.
 from typing import Any
 
 from karenina.schemas import (
-    CallableTrait,
+    AgenticRubricTrait,
+    CallableRubricTrait,
     LLMRubricTrait,
     MetricRubricTrait,
-    RegexTrait,
+    RegexRubricTrait,
     Rubric,
 )
 
@@ -55,16 +56,16 @@ def parse_llm_trait(trait_data: dict[str, Any]) -> LLMRubricTrait:
     )
 
 
-def parse_regex_trait(trait_data: dict[str, Any]) -> RegexTrait:
-    """Parse a dict into a RegexTrait.
+def parse_regex_trait(trait_data: dict[str, Any]) -> RegexRubricTrait:
+    """Parse a dict into a RegexRubricTrait.
 
     Args:
         trait_data: Dict with trait properties from frontend.
 
     Returns:
-        RegexTrait instance.
+        RegexRubricTrait instance.
     """
-    return RegexTrait(
+    return RegexRubricTrait(
         name=trait_data["name"],
         description=trait_data.get("description"),
         pattern=trait_data.get("pattern", ""),
@@ -73,16 +74,16 @@ def parse_regex_trait(trait_data: dict[str, Any]) -> RegexTrait:
     )
 
 
-def parse_callable_trait(trait_data: dict[str, Any]) -> CallableTrait:
-    """Parse a dict into a CallableTrait.
+def parse_callable_trait(trait_data: dict[str, Any]) -> CallableRubricTrait:
+    """Parse a dict into a CallableRubricTrait.
 
     Args:
         trait_data: Dict with trait properties from frontend.
 
     Returns:
-        CallableTrait instance.
+        CallableRubricTrait instance.
     """
-    return CallableTrait(
+    return CallableRubricTrait(
         name=trait_data["name"],
         description=trait_data.get("description"),
         callable_code=trait_data.get("callable_code", b""),
@@ -113,11 +114,30 @@ def parse_metric_trait(trait_data: dict[str, Any]) -> MetricRubricTrait:
     )
 
 
+def parse_agentic_trait(trait_data: dict[str, Any]) -> AgenticRubricTrait:
+    """Parse a dict into an AgenticRubricTrait.
+
+    Uses Pydantic passthrough with kind normalization. AgenticRubricTrait
+    has its own validators for field constraints, so explicit field
+    extraction is unnecessary.
+
+    Args:
+        trait_data: Dict with trait properties from frontend.
+
+    Returns:
+        AgenticRubricTrait instance.
+    """
+    data = dict(trait_data)
+    if "kind" in data:
+        data["kind"] = normalize_trait_kind(data["kind"])
+    return AgenticRubricTrait(**data)
+
+
 def build_rubric_from_dict(rubric_data: dict[str, Any]) -> Rubric | None:
     """Build a Rubric object from a frontend rubric dict.
 
-    This function handles all trait types (LLM, regex, callable, metric)
-    and returns a fully constructed Rubric object.
+    This function handles all trait types (LLM, regex, callable, metric,
+    agentic) and returns a fully constructed Rubric object.
 
     Args:
         rubric_data: Dict containing trait lists from frontend.
@@ -129,8 +149,9 @@ def build_rubric_from_dict(rubric_data: dict[str, Any]) -> Rubric | None:
     regex_traits = [parse_regex_trait(t) for t in rubric_data.get("regex_traits", [])]
     callable_traits = [parse_callable_trait(t) for t in rubric_data.get("callable_traits", [])]
     metric_traits = [parse_metric_trait(t) for t in rubric_data.get("metric_traits", [])]
+    agentic_traits = [parse_agentic_trait(t) for t in rubric_data.get("agentic_traits", [])]
 
-    if not any([llm_traits, regex_traits, callable_traits, metric_traits]):
+    if not any([llm_traits, regex_traits, callable_traits, metric_traits, agentic_traits]):
         return None
 
     return Rubric(
@@ -138,4 +159,5 @@ def build_rubric_from_dict(rubric_data: dict[str, Any]) -> Rubric | None:
         regex_traits=regex_traits,
         callable_traits=callable_traits,
         metric_traits=metric_traits,
+        agentic_traits=agentic_traits,
     )

@@ -119,14 +119,14 @@ def _generate_preset_summary(config_dict: dict[str, Any]) -> dict[str, Any]:
         summary["enabled_features"].append("abstention")
     if config_dict.get("sufficiency_enabled"):
         summary["enabled_features"].append("sufficiency")
-    if config_dict.get("deep_judgment_enabled"):
+    if config_dict.get("deep_judgment_mode", "disabled") != "disabled":
         summary["enabled_features"].append("deep_judgment")
     if config_dict.get("deep_judgment_search_enabled"):
         summary["enabled_features"].append("deep_judgment_search")
 
     # Check few-shot
     few_shot_config = config_dict.get("few_shot_config")
-    if few_shot_config and few_shot_config.get("enabled"):
+    if few_shot_config and few_shot_config.get("source", "both") != "disabled":
         summary["enabled_features"].append("few_shot")
 
     # Collect unique interfaces

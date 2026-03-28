@@ -44,7 +44,7 @@ def sample_verification_config():
         replicate_count=1,
         evaluation_mode="template_and_rubric",
         abstention_enabled=False,
-        deep_judgment_enabled=False,
+        deep_judgment_mode="disabled",
     )
 
 

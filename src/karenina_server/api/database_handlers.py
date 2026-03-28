@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 
 try:
-    from karenina.schemas import Rubric
+    from karenina.schemas import Question, Rubric
     from karenina.storage import (
         DBConfig,
         ImportMetadataModel,
@@ -26,6 +26,7 @@ try:
     STORAGE_AVAILABLE = True
 except ImportError:
     STORAGE_AVAILABLE = False
+    Question = None
     Rubric = None
     build_rubric_from_dict = None  # type: ignore[assignment]
 
@@ -151,6 +152,28 @@ def _normalize_creator_name(creator: str | dict[str, Any] | None) -> str:
         name = creator.get("name", "Unknown")
         return str(name)  # Ensure it's a string
     return "Unknown"
+
+
+def _build_question_from_data(q_data: dict[str, Any]) -> "Question":
+    """Build a Question from checkpoint data, filtering out non-Question keys.
+
+    Checkpoint data from the frontend contains both Question fields and
+    non-Question fields (e.g. ``finished``, ``last_modified``). Since the
+    Question model uses ``extra="forbid"``, passing all keys would raise a
+    ``ValidationError``. This helper filters to keys accepted by Question,
+    ensuring all current and future Question fields are preserved
+    automatically.
+
+    Args:
+        q_data: Raw question dict from checkpoint data.
+
+    Returns:
+        A validated Question instance.
+    """
+    # Keys accepted by Question: model fields + legacy keys handled by model_validator
+    accepted_keys = set(Question.model_fields.keys()) | {"id", "tags"}
+    question_kwargs = {k: v for k, v in q_data.items() if k in accepted_keys}
+    return Question(**question_kwargs)
 
 
 def register_database_routes(
@@ -453,7 +476,6 @@ def register_database_routes(
         try:
             # Import required classes
             from karenina.benchmark.benchmark import Benchmark
-            from karenina.schemas import Question
 
             db_config = DBConfig(storage_url=request.storage_url)
 
@@ -471,14 +493,7 @@ def register_database_routes(
             # Add questions from checkpoint
             questions_data = request.checkpoint_data.get("questions", {})
             for question_id, q_data in questions_data.items():
-                # Create Question object
-                question = Question(
-                    question=q_data["question"],
-                    raw_answer=q_data["raw_answer"],
-                    answer_notes=q_data.get("answer_notes"),
-                    keywords=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
-                    few_shot_examples=q_data.get("few_shot_examples"),
-                )
+                question = _build_question_from_data(q_data)
 
                 # Add question to benchmark with the original question_id
                 benchmark.add_question(
@@ -544,7 +559,6 @@ def register_database_routes(
         try:
             # Import required classes
             from karenina.benchmark.benchmark import Benchmark
-            from karenina.schemas import Question
 
             db_config = DBConfig(storage_url=request.storage_url)
 
@@ -577,14 +591,7 @@ def register_database_routes(
                     # Add this question - will update the existing version
                     kept_new_count += 1
 
-                # Create Question object
-                question = Question(
-                    question=q_data["question"],
-                    raw_answer=q_data["raw_answer"],
-                    answer_notes=q_data.get("answer_notes"),
-                    keywords=q_data.get("keywords", []),  # Frontend CheckpointItem sends "keywords"
-                    few_shot_examples=q_data.get("few_shot_examples"),
-                )
+                question = _build_question_from_data(q_data)
 
                 # Add question to benchmark with the original question_id
                 benchmark.add_question(
