@@ -206,6 +206,8 @@ def validate_spec(spec: TemplateSpec) -> list[str]:
         "NumericExact": {"int", "float"},
         "NumericTolerance": {"float"},
         "NumericRange": {"int", "float"},
+        "NumericMinimum": {"int", "float"},
+        "NumericMaximum": {"int", "float"},
         "SetContainment": {"list_str"},
         "OrderedMatch": {"list_str"},
         "LiteralMatch": {"literal", "str"},
