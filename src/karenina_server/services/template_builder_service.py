@@ -172,6 +172,8 @@ class TemplateBuilderService:
             "NumericExact": ["int", "float"],
             "NumericTolerance": ["float"],
             "NumericRange": ["int", "float"],
+            "NumericMinimum": ["int", "float"],
+            "NumericMaximum": ["int", "float"],
             "SetContainment": ["list_str"],
             "OrderedMatch": ["list_str"],
             "LiteralMatch": ["literal"],
