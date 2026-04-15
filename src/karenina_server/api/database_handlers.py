@@ -53,6 +53,38 @@ def _format_model_display(identity_dict: dict[str, Any]) -> str:
     return base
 
 
+def _result_to_summary_dict(result: dict[str, Any]) -> dict[str, Any]:
+    """Project a storage-layer result dict to the summary response shape.
+
+    The input ``result`` is the dict form returned by
+    ``load_verification_results(as_dict=False)`` (a flattened
+    ``VerificationResult.model_dump()`` with ``id`` and ``run_id`` injected
+    by the storage layer). The summary dict is the per-row shape returned
+    by the ``/api/v2/verification-results`` endpoint.
+
+    Args:
+        result: Storage-layer result dict.
+
+    Returns:
+        A summary dict carrying the unified ``failure``/``caveats`` shape.
+    """
+    metadata = result.get("metadata", {}) or {}
+    template = result.get("template") or {}
+    return {
+        "id": result.get("id", 0),
+        "run_id": result.get("run_id", ""),
+        "question_id": metadata.get("question_id", ""),
+        "question_text": metadata.get("question_text", ""),
+        "answering_model": _format_model_display(metadata.get("answering", {}) or {}),
+        "parsing_model": _format_model_display(metadata.get("parsing", {}) or {}),
+        "failure": metadata.get("failure"),
+        "caveats": metadata.get("caveats", []),
+        "template_verify_result": template.get("verify_result"),
+        "execution_time": metadata.get("execution_time", 0.0),
+        "timestamp": metadata.get("timestamp", ""),
+    }
+
+
 def _serialize_trait(trait: Any) -> dict[str, Any]:
     """Serialize a single trait to dict format.
 
@@ -961,25 +993,8 @@ def register_database_routes(
                 as_dict=False,
             )
 
-            # Convert to summary format
-            result_summaries = []
-            for result in results:
-                result_summaries.append(
-                    {
-                        "id": result.get("id", 0),
-                        "run_id": result.get("run_id", ""),
-                        "question_id": result.get("metadata", {}).get("question_id", ""),
-                        "question_text": result.get("metadata", {}).get("question_text", ""),
-                        "answering_model": _format_model_display(result.get("metadata", {}).get("answering", {})),
-                        "parsing_model": _format_model_display(result.get("metadata", {}).get("parsing", {})),
-                        "completed_without_errors": result.get("metadata", {}).get("completed_without_errors", False),
-                        "template_verify_result": result.get("template", {}).get("verify_result")
-                        if result.get("template")
-                        else None,
-                        "execution_time": result.get("metadata", {}).get("execution_time", 0.0),
-                        "timestamp": result.get("metadata", {}).get("timestamp", ""),
-                    }
-                )
+            # Convert to summary format using shared projection helper
+            result_summaries = [_result_to_summary_dict(result) for result in results]
 
             return LoadVerificationResultsResponse(
                 success=True,

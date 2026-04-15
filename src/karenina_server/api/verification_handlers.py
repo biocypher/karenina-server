@@ -56,7 +56,7 @@ def _deduplicate_results_by_replicate(
     deduplicated = []
     for replicate_num in sorted(replicate_groups.keys()):
         candidates = replicate_groups[replicate_num]
-        failed_results = [r for r in candidates if not r.metadata.completed_without_errors]
+        failed_results = [r for r in candidates if r.metadata.failure is not None]
 
         if failed_results:
             # Show the most recent failure
@@ -88,7 +88,7 @@ def _build_heatmap_cell(result: VerificationResult) -> dict[str, Any]:
         "score": None,
         "abstained": False,
         "insufficient": False,
-        "error": result.metadata.error is not None,
+        "error": result.metadata.failure is not None,
     }
 
     # Template verification status

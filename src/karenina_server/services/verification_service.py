@@ -12,6 +12,7 @@ from typing import Any
 
 from karenina.schemas.entities import Rubric
 from karenina.schemas.results import VerificationResultSet
+from karenina.schemas.results.failure import Failure, FailureCategory
 from karenina.schemas.verification import (
     FinishedTemplate,
     ModelIdentity,
@@ -605,7 +606,7 @@ class VerificationService:
                         )
                     else:
                         # Task is finished - update under lock for thread safety
-                        success = result.metadata.completed_without_errors
+                        success = result.metadata.failure is None
 
                         with self._get_job_lock(job.job_id):
                             # task_finished now calculates duration internally from task_start_times
@@ -646,9 +647,9 @@ class VerificationService:
                 # Store the VerificationResultSet directly
                 job.result_set = results
                 job.processed_count = len(results)
-                # Count successful and failed results
-                job.successful_count = sum(1 for r in results if r.metadata.completed_without_errors)
-                job.failed_count = sum(1 for r in results if not r.metadata.completed_without_errors)
+                # Count successful and failed results (failure is None means success)
+                job.successful_count = sum(1 for r in results if r.metadata.failure is None)
+                job.failed_count = sum(1 for r in results if r.metadata.failure is not None)
                 job.end_time = time.time()
                 job.percentage = 100.0
                 job.last_task_duration = None  # Clear last task duration on completion
@@ -708,8 +709,11 @@ class VerificationService:
                         metadata=VerificationResultMetadata(
                             question_id=template.question_id,
                             template_id=generate_template_id(template.template_code),
-                            completed_without_errors=False,
-                            error=f"Verification error: {error!s}",
+                            failure=Failure(
+                                category=FailureCategory.UNEXPECTED_ERROR,
+                                stage="unknown",
+                                reason=f"Verification error: {error!s}",
+                            ),
                             question_text=template.question_text,
                             keywords=template.keywords,
                             answering=answering_identity,

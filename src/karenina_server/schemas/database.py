@@ -2,7 +2,9 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from karenina.schemas.results.caveat import Caveat
+from karenina.schemas.results.failure import Failure
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PaginationParams(BaseModel):
@@ -261,7 +263,14 @@ class LoadVerificationResultsRequest(BaseModel):
 
 
 class VerificationResultSummary(BaseModel):
-    """Summary of a verification result."""
+    """Summary of a verification result.
+
+    Exposes the unified failure/caveats shape. ``failure`` is ``None`` when
+    the pipeline completed successfully; otherwise it carries a structured
+    :class:`Failure` describing the non-pass verdict.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     id: int
     run_id: str
@@ -269,7 +278,8 @@ class VerificationResultSummary(BaseModel):
     question_text: str
     answering_model: str
     parsing_model: str
-    completed_without_errors: bool
+    failure: Failure | None = None
+    caveats: list[Caveat] = Field(default_factory=list)
     template_verify_result: Any
     execution_time: float
     timestamp: str

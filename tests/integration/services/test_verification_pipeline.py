@@ -23,7 +23,7 @@ def make_mock_result(question_id: str = "test_q1") -> VerificationResult:
         metadata=VerificationResultMetadata(
             question_id=question_id,
             template_id="no_template",
-            completed_without_errors=True,
+            failure=None,
             question_text="What is 2+2?",
             answering=ModelIdentity(interface="langchain", model_name="claude-haiku-4-5"),
             parsing=ModelIdentity(interface="langchain", model_name="claude-haiku-4-5"),
