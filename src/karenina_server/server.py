@@ -162,11 +162,25 @@ class KareninaHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
 
+def _normalize_webapp_directory(path: Path) -> Path:
+    """Return the webapp root directory for either a webapp root or a dist directory."""
+    resolved = path.expanduser().resolve()
+    if resolved.name == "dist" and (resolved / "index.html").exists():
+        return resolved.parent
+    return resolved
+
+
 def find_webapp_directory(webapp_path: str | None = None) -> Path:
-    """Find the webapp directory relative to the package."""
+    """Find the webapp root directory.
+
+    The packaged wheel stores built assets under
+    ``karenina_server/webapp/dist``. Development can override this with an
+    explicit path or ``KARENINA_WEBAPP_DIR`` pointing either at a webapp root
+    or directly at a ``dist`` directory.
+    """
     # If explicit path provided, use it
     if webapp_path:
-        webapp_dir = Path(webapp_path)
+        webapp_dir = _normalize_webapp_directory(Path(webapp_path))
         if not webapp_dir.exists():
             raise FileNotFoundError(f"Specified webapp directory not found: {webapp_path}")
         return webapp_dir
@@ -174,42 +188,46 @@ def find_webapp_directory(webapp_path: str | None = None) -> Path:
     # Check environment variable
     env_path = os.environ.get("KARENINA_WEBAPP_DIR")
     if env_path:
-        webapp_dir = Path(env_path)
+        webapp_dir = _normalize_webapp_directory(Path(env_path))
         if not webapp_dir.exists():
             raise FileNotFoundError(f"Environment KARENINA_WEBAPP_DIR directory not found: {env_path}")
         return webapp_dir
 
-    # Try to find webapp directory relative to this file
-    current_dir = Path(__file__).parent
-    webapp_dir = current_dir.parent / "webapp"
+    # Packaged assets live inside the karenina_server package.
+    packaged_webapp = Path(__file__).parent / "webapp"
+    if packaged_webapp.exists():
+        return packaged_webapp
 
-    if not webapp_dir.exists():
-        # Try alternative locations
-        alternatives = [
-            current_dir / "webapp",
-            current_dir.parent.parent / "webapp",
-        ]
+    # Local development fallback for editable checkouts with a sibling GUI repo.
+    sibling_gui = Path(__file__).resolve().parents[3] / "karenina-gui"
+    if sibling_gui.exists():
+        return sibling_gui
 
-        for alt in alternatives:
-            if alt.exists():
-                webapp_dir = alt
-                break
-        else:
-            raise FileNotFoundError(
-                f"Webapp directory not found. Searched in: {webapp_dir} and alternatives: {alternatives}. Set KARENINA_WEBAPP_DIR environment variable or use --webapp-dir option."
-            )
-
-    return webapp_dir
+    raise FileNotFoundError(
+        "Webapp directory not found. Expected packaged assets at "
+        f"{packaged_webapp} or a sibling GUI checkout at {sibling_gui}. "
+        "Set KARENINA_WEBAPP_DIR or use --webapp-dir to override."
+    )
 
 
 def build_webapp(webapp_dir: Path, force_rebuild: bool = False) -> Path:
-    """Build the webapp if needed and return the dist directory."""
+    """Build the webapp if source is available and return the dist directory.
+
+    Installed wheels should already contain ``webapp/dist`` and must not need
+    Node.js/npm at runtime. Editable development checkouts can point at the GUI
+    source directory and build it on demand.
+    """
+    webapp_dir = _normalize_webapp_directory(webapp_dir)
     dist_dir = webapp_dir / "dist"
     package_json = webapp_dir / "package.json"
 
-    # Check if we need to build
-    if not force_rebuild and dist_dir.exists() and dist_dir.is_dir():
-        # Check if dist is newer than src
+    # Pre-built package assets are enough for runtime serving.
+    if not force_rebuild and dist_dir.exists() and (dist_dir / "index.html").is_file():
+        if not package_json.exists():
+            print("✓ Using pre-built webapp assets")
+            return dist_dir
+
+        # For source checkouts, rebuild only when dist is older than src.
         try:
             src_dir = webapp_dir / "src"
             if src_dir.exists():
@@ -218,15 +236,14 @@ def build_webapp(webapp_dir: Path, force_rebuild: bool = False) -> Path:
                 if dist_mtime > src_mtime:
                     print("✓ Webapp build is up to date")
                     return dist_dir
-            else:
-                # No src directory means this is a pre-built package installation
-                print("✓ Using pre-built webapp assets")
-                return dist_dir
         except (ValueError, StopIteration):
             pass  # Fall through to rebuild
 
     if not package_json.exists():
-        raise FileNotFoundError(f"package.json not found in {webapp_dir}")
+        raise FileNotFoundError(
+            f"Webapp assets not found in {webapp_dir}. Expected {dist_dir / 'index.html'} for packaged installs "
+            f"or {package_json} for development builds."
+        )
 
     print("🔧 Building webapp...")
 
@@ -607,5 +624,5 @@ def start_fastapi_server(webapp_dir: Path, host: str, port: int) -> None:
 
 # Create app instance for uvicorn
 # This allows uvicorn to find the app when running: uvicorn karenina_server.server:app
-webapp_dir = Path(__file__).parent.parent.parent / "karenina-gui" / "dist"
-app = create_fastapi_app(webapp_dir)
+_default_webapp_dir = Path(__file__).parent / "webapp"
+app = create_fastapi_app(_default_webapp_dir)
