@@ -66,11 +66,13 @@ Alternative docs: `http://localhost:8080/redoc`
 
 `karenina-server` is the Python package that serves both the REST API and the built GUI assets. At package build time, `build_hooks.py` looks for a sibling `karenina-gui` checkout, runs its production build, and copies `dist/` into `src/karenina_server/webapp/dist/` so runtime installs do not need Node.js or npm.
 
+When neither GUI source nor pre-built assets are available, the build falls back to a placeholder webapp and warns. This keeps source installs working (editable checkouts, `pip install git+...`, CI) at the cost of serving the API with no UI. Set `KARENINA_RELEASE_BUILD=1` for any artifact you intend to publish: it turns that fallback into an error, and also refuses to reuse a placeholder left in `webapp/dist` by an earlier build.
+
 Release/build options:
 
 ```bash
-# Normal release build from a workspace containing ../karenina-gui
-uv build
+# Release build from a workspace containing ../karenina-gui
+KARENINA_RELEASE_BUILD=1 uv build
 
 # Use an explicit GUI checkout
 KARENINA_GUI_DIR=/path/to/karenina-gui uv build
@@ -78,8 +80,8 @@ KARENINA_GUI_DIR=/path/to/karenina-gui uv build
 # Reuse pre-built src/karenina_server/webapp/dist assets without invoking npm
 KARENINA_SKIP_GUI_BUILD=1 uv build
 
-# Local/dev fallback only: create a placeholder webapp if assets are missing
-KARENINA_ALLOW_PLACEHOLDER_WEBAPP=1 uv build
+# Source build with no GUI available: writes a placeholder webapp and warns
+uv build
 ```
 
 Runtime serving uses packaged assets by default, and still supports overrides for development:
@@ -95,6 +97,8 @@ For end users, the intended public entry point is the core package extra:
 pip install "karenina[webapp]"
 karenina serve
 ```
+
+Note that neither `karenina` nor `karenina-server` is published to PyPI yet, so this command does not resolve today. Until both are published, install from git following the instructions in the [karenina](https://github.com/biocypher/karenina) README.
 
 
 ## Contributing

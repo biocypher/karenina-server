@@ -43,6 +43,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-testmon>=2.1.3",    # For smart testing
     "httpx>=0.24.0",            # For testing FastAPI
+    "hatchling>=1.27.0",        # Build backend, imported by build_hooks tests
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "vulture>=2.0.0",           # For dead code detection

@@ -5,14 +5,17 @@ This hook runs during ``uv build`` or ``pip wheel`` and:
 2. Runs ``npm ci`` (or ``npm install`` when no lockfile exists) and ``npm run build``.
 3. Copies the GUI ``dist/`` output to ``src/karenina_server/webapp/dist/``.
 
-Runtime installs must not require Node.js/npm. Release builds should either have
-sibling GUI source available or pre-built assets already present in
-``src/karenina_server/webapp/dist``.
+Runtime installs must not require Node.js/npm, so a wheel is expected to carry
+built assets. When no GUI source and no pre-built assets are available the hook
+falls back to a placeholder webapp, which keeps source installs working (editable
+checkouts, ``pip install git+...``) at the cost of shipping no UI. Release builds
+set ``KARENINA_RELEASE_BUILD=1`` to turn that fallback into a hard error, so a
+published artifact can never silently contain the placeholder.
 
 Environment switches:
+- ``KARENINA_RELEASE_BUILD=1``: refuse to build without real GUI assets, and
+  refuse to reuse a previously written placeholder.
 - ``KARENINA_SKIP_GUI_BUILD=1``: do not build sibling GUI; require existing assets.
-- ``KARENINA_ALLOW_PLACEHOLDER_WEBAPP=1``: create a placeholder webapp if neither
-  GUI source nor existing assets are available (local/dev fallback only).
 - ``KARENINA_GUI_DIR=/path/to/karenina-gui``: override sibling GUI source path.
 """
 
@@ -27,6 +30,15 @@ from typing import Any
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
+
+# Written alongside the placeholder index.html so later builds can tell a
+# placeholder apart from a real GUI build left over in the working tree.
+PLACEHOLDER_MARKER = ".karenina-placeholder"
+
+_RELEASE_HINT = (
+    "Build with a sibling karenina-gui checkout, set KARENINA_GUI_DIR, or pre-populate "
+    "the assets. Unset KARENINA_RELEASE_BUILD for a placeholder build without a UI."
+)
 
 
 def _env_enabled(name: str) -> bool:
@@ -43,32 +55,34 @@ class CustomBuildHook(BuildHookInterface):  # type: ignore[misc]
         root = Path(self.root)
         gui_dir = Path(os.environ.get("KARENINA_GUI_DIR", root.parent / "karenina-gui"))
         webapp_dist = root / "src" / "karenina_server" / "webapp" / "dist"
+        release_build = _env_enabled("KARENINA_RELEASE_BUILD")
 
         if _env_enabled("KARENINA_SKIP_GUI_BUILD"):
-            if self._has_built_assets(webapp_dist):
-                self.app.display_info("KARENINA_SKIP_GUI_BUILD=1: using existing webapp assets")
-                return
-            raise RuntimeError(
-                "KARENINA_SKIP_GUI_BUILD=1 was set, but pre-built webapp assets were not found at "
-                f"{webapp_dist}. Run the GUI build first or unset KARENINA_SKIP_GUI_BUILD."
-            )
+            if not self._has_built_assets(webapp_dist):
+                raise RuntimeError(
+                    "KARENINA_SKIP_GUI_BUILD=1 was set, but pre-built webapp assets were not found at "
+                    f"{webapp_dist}. Run the GUI build first or unset KARENINA_SKIP_GUI_BUILD."
+                )
+            self._reject_placeholder_for_release(webapp_dist, release_build)
+            self.app.display_info("KARENINA_SKIP_GUI_BUILD=1: using existing webapp assets")
+            return
 
         if not gui_dir.exists():
             if self._has_built_assets(webapp_dist):
+                self._reject_placeholder_for_release(webapp_dist, release_build)
                 self.app.display_info("GUI source not found, using pre-built webapp assets")
                 return
-            if _env_enabled("KARENINA_ALLOW_PLACEHOLDER_WEBAPP"):
-                self.app.display_warning(
-                    f"karenina-gui not found at {gui_dir}. Creating placeholder webapp because "
-                    "KARENINA_ALLOW_PLACEHOLDER_WEBAPP=1."
+            if release_build:
+                raise RuntimeError(
+                    f"KARENINA_RELEASE_BUILD=1 was set, but karenina-gui was not found at {gui_dir} "
+                    f"and no pre-built webapp assets exist at {webapp_dist}. {_RELEASE_HINT}"
                 )
-                self._write_placeholder(webapp_dist)
-                return
-            raise RuntimeError(
-                f"karenina-gui not found at {gui_dir} and no pre-built webapp assets exist at {webapp_dist}. "
-                "Build with a sibling karenina-gui checkout, set KARENINA_GUI_DIR, or pre-populate assets. "
-                "For local placeholder builds only, set KARENINA_ALLOW_PLACEHOLDER_WEBAPP=1."
+            self.app.display_warning(
+                f"karenina-gui not found at {gui_dir}. Building a placeholder webapp: this install "
+                "will serve the API but no web UI. Set KARENINA_RELEASE_BUILD=1 to make this an error."
             )
+            self._write_placeholder(webapp_dist)
+            return
 
         self.app.display_info(f"Building karenina-gui from {gui_dir}")
 
@@ -90,14 +104,31 @@ class CustomBuildHook(BuildHookInterface):  # type: ignore[misc]
 
         self.app.display_info(f"Webapp built and copied to {webapp_dist}")
 
+    @classmethod
+    def _reject_placeholder_for_release(cls, webapp_dist: Path, release_build: bool) -> None:
+        """Stop a release build from shipping placeholder assets left by an earlier build."""
+        if release_build and cls._is_placeholder(webapp_dist):
+            raise RuntimeError(
+                f"KARENINA_RELEASE_BUILD=1 was set, but the assets at {webapp_dist} are a placeholder "
+                f"webapp from an earlier build, not a real GUI build. {_RELEASE_HINT}"
+            )
+
     @staticmethod
     def _has_built_assets(path: Path) -> bool:
         return path.is_dir() and (path / "index.html").is_file()
 
     @staticmethod
+    def _is_placeholder(webapp_dist: Path) -> bool:
+        return (webapp_dist / PLACEHOLDER_MARKER).is_file()
+
+    @staticmethod
     def _write_placeholder(webapp_dist: Path) -> None:
         webapp_dist.mkdir(parents=True, exist_ok=True)
         (webapp_dist / "assets").mkdir(exist_ok=True)
+        (webapp_dist / PLACEHOLDER_MARKER).write_text(
+            "This webapp/dist was generated as a placeholder because no karenina-gui\n"
+            "source or pre-built assets were available at build time.\n"
+        )
         (webapp_dist / "index.html").write_text(
             "<!DOCTYPE html><html><head><title>Karenina Server</title></head>"
             "<body><h1>Web UI Not Available</h1>"
