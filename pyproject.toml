@@ -193,7 +193,10 @@ dev = [
 version_variables = [
     "src/karenina_server/__init__.py:__version__",
 ]
-build_command = "uv run python -m build"
+# KARENINA_RELEASE_BUILD=1 makes the build fail rather than publish a wheel
+# whose webapp is the placeholder. Releases must run where karenina-gui source
+# or pre-built assets are available. See build_hooks.py.
+build_command = "KARENINA_RELEASE_BUILD=1 uv run python -m build"
 dist_path = "dist/"
 upload_to_pypi = true
 upload_to_release = true
