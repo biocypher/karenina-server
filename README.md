@@ -13,7 +13,7 @@ FastAPI-based REST API for the [Karenina](https://github.com/biocypher/karenina)
 
 Together, these three packages enable no-code web-based access to the Karenina framework for domain experts and non-technical users, as well as third-party integrations via standardized REST endpoints.
 
-**Note**: The full stack integration is currently a work in progress. Comprehensive instructions for spinning up the complete web-based system will be provided soon.
+**Note**: Packaged releases can bundle the built `karenina-gui` assets and serve the existing GUI from the same FastAPI process as the API.
 
 ### Key Features
 
@@ -61,6 +61,45 @@ API will be available at `http://localhost:8080/api/`
 Interactive API documentation: `http://localhost:8080/docs`
 
 Alternative docs: `http://localhost:8080/redoc`
+
+### Webapp Asset Packaging
+
+`karenina-server` is the Python package that serves both the REST API and the built GUI assets. At package build time, `build_hooks.py` looks for a sibling `karenina-gui` checkout, runs its production build, and copies `dist/` into `src/karenina_server/webapp/dist/` so runtime installs do not need Node.js or npm.
+
+When neither GUI source nor pre-built assets are available, the build falls back to a placeholder webapp and warns. This keeps source installs working (editable checkouts, `pip install git+...`, CI) at the cost of serving the API with no UI. Set `KARENINA_RELEASE_BUILD=1` for any artifact you intend to publish: it turns that fallback into an error, and also refuses to reuse a placeholder left in `webapp/dist` by an earlier build.
+
+Release/build options:
+
+```bash
+# Release build from a workspace containing ../karenina-gui
+KARENINA_RELEASE_BUILD=1 uv build
+
+# Use an explicit GUI checkout
+KARENINA_GUI_DIR=/path/to/karenina-gui uv build
+
+# Reuse pre-built src/karenina_server/webapp/dist assets without invoking npm
+KARENINA_SKIP_GUI_BUILD=1 uv build
+
+# Source build with no GUI available: writes a placeholder webapp and warns
+uv build
+```
+
+Runtime serving uses packaged assets by default, and still supports overrides for development:
+
+```bash
+KARENINA_WEBAPP_DIR=/path/to/karenina-gui npm run build  # in GUI repo, if needed
+karenina-server serve --webapp-dir /path/to/karenina-gui
+```
+
+For end users, the intended public entry point is the core package extra:
+
+```bash
+pip install "karenina[webapp]"
+karenina serve
+```
+
+Note that neither `karenina` nor `karenina-server` is published to PyPI yet, so this command does not resolve today. Until both are published, install from git following the instructions in the [karenina](https://github.com/biocypher/karenina) README.
+
 
 ## Contributing
 
